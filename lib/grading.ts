@@ -25,6 +25,12 @@ function answersMatch(question: ExamQuestion, answer: UserAnswer | undefined) {
   if (!accepted.length || answer === undefined) return false
 
   if (question.input_type === 'check_box') {
+    if (question.total_sub && question.total_sub > 1) {
+      const expected = accepted[0]
+      if (!expected) return false
+      if (!Array.isArray(answer)) return false
+      return answer.map(normalize).includes(expected)
+    }
     if (!Array.isArray(answer)) return false
     const chosen = answer.map(normalize).filter(Boolean).sort()
     const expected = accepted.filter(Boolean).sort()
@@ -61,7 +67,8 @@ export function gradeExam(
   answers: Record<string, UserAnswer>,
 ): GradingSummary {
   const results: QuestionResult[] = questions.map((question) => {
-    const answer = answers[question.id] ?? (question.input_type === 'check_box' ? [] : '')
+    const answerKey = question.id.includes('__sub_') ? question.id.split('__sub_')[0] : question.id
+    const answer = answers[answerKey] ?? answers[question.id] ?? (question.input_type === 'check_box' ? [] : '')
     let status: AnswerStatus = 'incorrect'
 
     if (isEmpty(answer)) status = 'skipped'

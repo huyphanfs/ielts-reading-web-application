@@ -44,6 +44,8 @@ export type ExamQuestion = Question & {
   input_type: QuestionGroup['input_type']
   passage_part: Passage['passage_part']
   passage_title: string
+  sub_index?: number
+  total_sub?: number
 }
 
 export type ExamGroup = QuestionGroup & {

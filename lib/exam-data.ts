@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { readStringArray } from '@/lib/grading'
 import type { ExamDefinition, ExamGroup, ExamQuestion, Passage, Question, QuestionGroup } from '@/lib/types'
 
 const supabase = createClient()
@@ -31,7 +32,7 @@ export async function loadExamDefinition(input: {
   })).filter((group) => group.questions.length > 0)
 
   const groupById = new Map(groups.map((group) => [group.id, group]))
-  const questions: ExamQuestion[] = allQuestions
+  const rawQuestions: ExamQuestion[] = allQuestions
     .filter((question) => !allowedIds || allowedIds.has(question.id))
     .map((question) => {
       const passage = passagesById.get(question.passage_id)
@@ -44,7 +45,20 @@ export async function loadExamDefinition(input: {
         passage_title: passage?.title ?? '',
       }
     })
-    .sort((a, b) => a.passage_part - b.passage_part || a.question_number - b.question_number)
+
+  const questions: ExamQuestion[] = rawQuestions.flatMap((question) => {
+    if (question.input_type !== 'check_box') return [question]
+    const accepted = readStringArray(question.accepted_answers)
+    if (accepted.length <= 1) return [question]
+    return accepted.map((answer, index) => ({
+      ...question,
+      id: `${question.id}__sub_${index}`,
+      question_number: question.question_number + index,
+      accepted_answers: [answer],
+      sub_index: index,
+      total_sub: accepted.length,
+    }))
+  }).sort((a, b) => a.passage_part - b.passage_part || a.question_number - b.question_number)
 
   return {
     id: crypto.randomUUID(),

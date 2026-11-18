@@ -11,8 +11,9 @@ import type { ExamGroup, Question } from '@/lib/types'
 
 const supabase = createClient()
 const categories = [
-  'True/False/Not Given', 'Yes/No/Not Given', 'Matching Headings', 'Matching Features',
-  'Multiple Choice', 'Summary Completion', 'Table Completion', 'Short Answer',
+  'Matching Information to a Paragraph', 'Matching Headings', 'Matching Features',
+  'True/False/Not Given', 'Yes/No/Not Given', 'Multiple Choice',
+  'Summary Completion', 'Note Completion', 'Table Completion', 'Short Answer',
 ]
 
 type Props = { group: ExamGroup; onChanged: () => void }

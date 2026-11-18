@@ -1,9 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, CirclePlus, Dices, LoaderCircle, Trash2 } from 'lucide-react'
+import { Check, CirclePlus, Dices, LoaderCircle, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
+import { AIParseTestModal } from '@/components/admin/ai-parse-test-modal'
 import type { Passage } from '@/lib/types'
 
 const supabase = createClient()
@@ -20,6 +21,7 @@ export function TestManager() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [aiModalOpen, setAiModalOpen] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -101,7 +103,7 @@ export function TestManager() {
   }
 
   const deleteTest = async (test: TestRow) => {
-    if (!window.confirm(`Xóa đề “${test.title}”? Kết quả cũ vẫn được giữ nguyên.`)) return
+    if (!window.confirm(`Xóa đề "${test.title}"? Kết quả cũ vẫn được giữ nguyên.`)) return
     const { error: deleteError } = await supabase.from('tests').delete().eq('id', test.id)
     if (deleteError) setError('Không thể xóa đề thi đang có dữ liệu liên quan.')
     else {
@@ -111,8 +113,15 @@ export function TestManager() {
   }
 
   return <div className="space-y-6">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 text-white"><Sparkles className="size-5" /></span><div><h2 className="font-bold text-slate-900">AI Tự Động Tạo Đề</h2><p className="mt-1 text-sm text-slate-500">Dán văn bản thô — AI tự động trích xuất passage, câu hỏi, đáp án và giải thích.</p></div></div>
+      <Button onClick={() => setAiModalOpen(true)} className="h-10 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"><Sparkles className="mr-2 size-4" />AI Tự Động Tạo Đề</Button>
+    </div>
+
+    <AIParseTestModal open={aiModalOpen} onClose={() => setAiModalOpen(false)} onSaved={() => { void loadData(); setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra thư viện passage để ghép đề.') }} />
+
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-      <div className="mb-5 flex items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CirclePlus className="size-5" /></span><div><h2 className="font-bold text-slate-900">Tạo đề thi</h2><p className="mt-1 text-sm text-slate-500">Chọn thủ công từng passage hoặc gán bộ đề ngẫu nhiên đủ 40 câu.</p></div></div>
+      <div className="mb-5 flex items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CirclePlus className="size-5" /></span><div><h2 className="font-bold text-slate-900">Tạo đề thi thủ công</h2><p className="mt-1 text-sm text-slate-500">Chọn thủ công từng passage hoặc gán bộ đề ngẫu nhiên đủ 40 câu.</p></div></div>
       <form onSubmit={(event) => void saveTest(event)} className="space-y-4">
         <label className="block text-xs font-semibold text-slate-600">Tên đề thi<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`Test ${tests.length + 1}`} className="mt-1.5 h-10 w-full max-w-[520px] rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400" /></label>
         <div className="grid gap-3 md:grid-cols-3">

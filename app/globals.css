@@ -109,3 +109,12 @@ button, input, select, textarea { font: inherit; }
   .exam-workspace { grid-template-columns: minmax(0, 1fr) !important; }
   .exam-divider { display: none !important; }
 }
+
+.exam-workspace > section:first-child { width: 100%; }
+.exam-workspace > section:last-child { width: 100%; }
+
+.rich-content p { margin-bottom: 1rem; line-height: 1.85; }
+.rich-content h1 { font-size: 1.5rem; }
+.rich-content h2 { font-size: 1.25rem; }
+.rich-content h3 { font-size: 1.1rem; }
+.rich-content blockquote { margin: 1rem 0; padding: 0.5rem 1rem; }

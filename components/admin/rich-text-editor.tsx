@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Bold, ImagePlus, Italic, List, Table2, Underline } from 'lucide-react'
+import { Bold, ImagePlus, Italic, List, Table2, Underline, AlignLeft, AlignCenter, AlignJustify } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { Button } from '@/components/ui/button'
@@ -9,12 +9,22 @@ import { Button } from '@/components/ui/button'
 const supabase = createClient()
 
 const fontSizes = [
-  { label: '12 px', value: '2' },
+  { label: '12 px', value: '1' },
+  { label: '13 px', value: '2' },
   { label: '14 px', value: '3' },
-  { label: '16 px', value: '4' },
-  { label: '18 px', value: '5' },
-  { label: '24 px', value: '6' },
-  { label: '32 px', value: '7' },
+  { label: '15 px', value: '4' },
+  { label: '16 px', value: '5' },
+  { label: '18 px', value: '6' },
+  { label: '20 px', value: '7' },
+  { label: '24 px', value: '8' },
+]
+
+const blockFormats = [
+  { label: 'Paragraph', tag: 'p' },
+  { label: 'Heading 1', tag: 'h1' },
+  { label: 'Heading 2', tag: 'h2' },
+  { label: 'Heading 3', tag: 'h3' },
+  { label: 'Blockquote', tag: 'blockquote' },
 ]
 
 export function RichTextEditor({
@@ -101,6 +111,11 @@ export function RichTextEditor({
       <select id={`${label}-font-family`} aria-label="Chọn font chữ" onChange={(event) => command('fontName', event.target.value)} defaultValue="Arial" className="h-8 max-w-[145px] rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-sky-400">
         <option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Verdana">Verdana</option><option value="Times New Roman">Times New Roman</option>
       </select>
+      <label className="sr-only" htmlFor={`${label}-block-format`}>Định dạng khối</label>
+      <select id={`${label}-block-format`} aria-label="Chọn định dạng đoạn văn" onChange={(event) => { if (event.target.value) command('formatBlock', event.target.value); event.target.selectedIndex = 0 }} defaultValue="" className="h-8 max-w-[130px] rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-sky-400">
+        <option value="" disabled>Định dạng</option>
+        {blockFormats.map((format) => <option key={format.tag} value={format.tag}>{format.label}</option>)}
+      </select>
       <label className="sr-only" htmlFor={`${label}-font-size`}>Cỡ chữ</label>
       <select id={`${label}-font-size`} aria-label="Chọn cỡ chữ" onChange={(event) => command('fontSize', event.target.value)} defaultValue="4" className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-sky-400">
         {fontSizes.map((size) => <option key={size.value} value={size.value}>{size.label}</option>)}
@@ -109,6 +124,11 @@ export function RichTextEditor({
       <ToolbarButton label="In đậm" icon={<Bold className="size-4" />} onClick={() => command('bold')} />
       <ToolbarButton label="In nghiêng" icon={<Italic className="size-4" />} onClick={() => command('italic')} />
       <ToolbarButton label="Gạch chân" icon={<Underline className="size-4" />} onClick={() => command('underline')} />
+      <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
+      <ToolbarButton label="Căn trái" icon={<AlignLeft className="size-4" />} onClick={() => command('justifyLeft')} />
+      <ToolbarButton label="Căn giữa" icon={<AlignCenter className="size-4" />} onClick={() => command('justifyCenter')} />
+      <ToolbarButton label="Căn đều" icon={<AlignJustify className="size-4" />} onClick={() => command('justifyFull')} />
+      <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
       <ToolbarButton label="Danh sách" icon={<List className="size-4" />} onClick={() => command('insertUnorderedList')} />
       <ToolbarButton label="Chèn bảng" icon={<Table2 className="size-4" />} onClick={insertTable} />
       <ToolbarButton label={uploading ? 'Đang tải ảnh' : 'Nhập ảnh'} icon={<ImagePlus className="size-4" />} onClick={() => fileRef.current?.click()} disabled={uploading} />

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
+import { readStringArray } from '@/lib/grading'
 import type { ExamGroup, UserAnswer } from '@/lib/types'
 
 function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) {
@@ -31,6 +32,8 @@ function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) 
   const category = group.question_category.toLowerCase()
   if (category.includes('true/false')) return ['TRUE', 'FALSE', 'NOT GIVEN'].map((value) => ({ value, label: value }))
   if (category.includes('yes/no')) return ['YES', 'NO', 'NOT GIVEN'].map((value) => ({ value, label: value }))
+  if (category.includes('matching information')) return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((value) => ({ value, label: `Paragraph ${value}` }))
+  if (category.includes('matching headings') || category.includes('matching features')) return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((value) => ({ value, label: value }))
   return []
 }
 
@@ -116,20 +119,38 @@ function QuestionControl({
 
   return <fieldset className="flex flex-wrap gap-x-4 gap-y-2">
     <legend className="sr-only">Chọn một hoặc nhiều đáp án cho câu {question.question_number}</legend>
-    {options.map((option) => {
+    {(() => {
+      const maxSelection = getMaxSelection(group, question)
+      const atMax = maxSelection ? selected.length >= maxSelection : false
+      return options.map((option) => {
       const checked = selected.includes(option.value)
-      return <label key={option.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
+      const disabled = !checked && atMax
+      return <label key={option.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
         <input
           type="checkbox"
           checked={checked}
+          disabled={disabled}
           onChange={() => onAnswer(checked ? selected.filter((item) => item !== option.value) : [...selected, option.value])}
           className="peer sr-only"
         />
         <span aria-hidden="true" className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="size-3" />}</span>
         {option.label}
       </label>
-    })}
+      })
+    })()}
   </fieldset>
+}
+
+function getMaxSelection(group: ExamGroup, question: ExamGroup['questions'][number]) {
+  const accepted = readStringArray(question.accepted_answers)
+  if (accepted.length > 1) return accepted.length
+  const instruction = group.instruction.toLowerCase()
+  const match = instruction.match(/choose (\w+)/)
+  if (match) {
+    const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 }
+    return words[match[1]] ?? null
+  }
+  return null
 }
 
 export function QuestionGroupCard({

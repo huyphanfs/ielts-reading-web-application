@@ -34,6 +34,10 @@ function clock(seconds: number) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
 }
 
+function getAnswerKey(questionId: string) {
+  return questionId.includes('__sub_') ? questionId.split('__sub_')[0] : questionId
+}
+
 function isAnswered(answer: UserAnswer | undefined) {
   return Array.isArray(answer) ? answer.length > 0 : Boolean(answer?.trim())
 }
@@ -53,7 +57,7 @@ export function ExamShell({
   const [secondsLeft, setSecondsLeft] = useState(3600)
   const [elapsed, setElapsed] = useState(0)
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
-  const [split, setSplit] = useState(50)
+  const [split, setSplit] = useState(60)
   const [submitting, setSubmitting] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [notes, setNotes] = useState<StudyNote[]>([])
@@ -143,7 +147,7 @@ export function ExamShell({
     setSelection(null)
   }, [currentPassage.id])
 
-  const answeredCount = useMemo(() => exam.questions.filter((question) => isAnswered(answers[question.id])).length, [answers, exam.questions])
+  const answeredCount = useMemo(() => exam.questions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length, [answers, exam.questions])
   const hasUnanswered = answeredCount < exam.questions.length
 
   const selectText = (pane: TextSelection['pane']) => {
@@ -295,7 +299,7 @@ export function ExamShell({
   const updateSplit = (clientX: number) => {
     const bounds = splitterRef.current?.getBoundingClientRect()
     if (!bounds || bounds.width === 0) return
-    setSplit(Math.max(30, Math.min(70, ((clientX - bounds.left) / bounds.width) * 100)))
+    setSplit(Math.max(40, Math.min(75, ((clientX - bounds.left) / bounds.width) * 100)))
   }
 
   const scrollToQuestion = (questionId: string, passagePart: number) => {
@@ -335,13 +339,13 @@ export function ExamShell({
         </div>
       </div>
 
-      <div ref={splitterRef} className="exam-workspace relative grid min-h-0 flex-1 overflow-hidden" style={{ gridTemplateColumns: `${split}fr 8px ${100 - split}fr` }}>
-        <section className="min-h-0 overflow-y-auto bg-white" aria-label={`Bài đọc Passage ${currentPassage.passage_part}`}>
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-5 py-3 backdrop-blur sm:px-7">
+      <div ref={splitterRef} className="exam-workspace relative grid min-h-0 w-full flex-1 overflow-hidden" style={{ gridTemplateColumns: `${split}fr 8px ${100 - split}fr` }}>
+        <section className="min-h-0 w-full overflow-y-auto bg-white" aria-label={`Bài đọc Passage ${currentPassage.passage_part}`}>
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-8 py-3 backdrop-blur">
             <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-600">Passage {currentPassage.passage_part}</p><h1 className="mt-1 text-lg font-bold text-slate-900">{currentPassage.title}</h1></div>
             <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{currentQuestions.length} câu</span>
           </div>
-          <div className="mx-auto max-w-[740px] px-5 py-6 sm:px-8 sm:py-8">
+          <div className="w-full px-8 py-6">
             <div
               ref={passageRef}
               className="rich-content text-[15px] leading-[1.9] selection:bg-yellow-200/80"
@@ -358,27 +362,27 @@ export function ExamShell({
           role="separator"
           aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi"
           aria-orientation="vertical"
-          aria-valuemin={30}
-          aria-valuemax={70}
+          aria-valuemin={40}
+          aria-valuemax={75}
           aria-valuenow={Math.round(split)}
           tabIndex={0}
           onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); updateSplit(event.clientX) }}
           onPointerMove={(event) => { if (event.buttons === 1) updateSplit(event.clientX) }}
           onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') setSplit((value) => Math.max(30, value - 3))
-            if (event.key === 'ArrowRight') setSplit((value) => Math.min(70, value + 3))
-            if (event.key === 'Home') setSplit(30)
-            if (event.key === 'End') setSplit(70)
+            if (event.key === 'ArrowLeft') setSplit((value) => Math.max(40, value - 3))
+            if (event.key === 'ArrowRight') setSplit((value) => Math.min(75, value + 3))
+            if (event.key === 'Home') setSplit(40)
+            if (event.key === 'End') setSplit(75)
           }}
         >
           <span className="h-10 w-1 rounded-full bg-slate-300 transition group-hover:bg-sky-400" />
         </div>
 
-        <section className="min-h-0 overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
-          <div className="mx-auto max-w-[760px] px-4 py-5 sm:px-6 sm:py-6">
+        <section className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
+          <div className="w-full px-8 py-6">
             <div className="mb-4 flex items-center justify-between px-1">
               <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Câu hỏi</p><p className="mt-1 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
-              <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[question.id])).length}/{currentQuestions.length} đã trả lời</span>
+              <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} đã trả lời</span>
             </div>
             <div ref={questionRef} className="space-y-4" onMouseUp={() => selectText('questions')} onKeyUp={() => selectText('questions')}>
               {currentGroups.length ? currentGroups.map((group) => (
@@ -394,7 +398,7 @@ export function ExamShell({
           <div className="flex shrink-0 items-center gap-1.5" role="tablist" aria-label="Chọn bài đọc">
             {exam.passages.map((passage, index) => {
               const passageQuestions = exam.questions.filter((question) => question.passage_id === passage.id)
-              const answered = passageQuestions.filter((question) => isAnswered(answers[question.id])).length
+              const answered = passageQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length
               return <button key={passage.id} type="button" role="tab" aria-selected={index === passageIndex} onClick={() => setPassageIndex(index)} className={`rounded-lg px-3 py-2 text-[11px] font-bold tracking-wide transition sm:text-xs ${index === passageIndex ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
                 P{passage.passage_part}<span className={`ml-1.5 font-medium ${index === passageIndex ? 'text-sky-100' : 'text-slate-400'}`}>{answered}/{passageQuestions.length}</span>
               </button>
@@ -403,11 +407,11 @@ export function ExamShell({
           <div className="h-7 w-px shrink-0 bg-slate-200" aria-hidden="true" />
           <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5" aria-label="Điều hướng câu hỏi">
             {exam.questions.map((question, index) => {
-              const answered = isAnswered(answers[question.id])
+              const answered = isAnswered(answers[getAnswerKey(question.id)])
               return <button
                 key={question.id}
                 type="button"
-                onClick={() => scrollToQuestion(question.id, question.passage_part)}
+                onClick={() => scrollToQuestion(getAnswerKey(question.id), question.passage_part)}
                 aria-label={`Đi đến câu ${question.question_number}`}
                 aria-current={currentQuestions.some((item) => item.id === question.id) ? 'location' : undefined}
                 className={`flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition ${answered ? 'border-sky-600 bg-sky-600 text-white hover:bg-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-700'}`}
