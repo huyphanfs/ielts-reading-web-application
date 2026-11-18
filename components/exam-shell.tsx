@@ -148,7 +148,7 @@ export function ExamShell({
         // Skip annotations that fail to apply (e.g. DOM changed during render)
       }
     }
-  }, [annotations, answers, currentGroups, currentPassage.id, rootForPane])
+  }, [annotations, currentGroups, currentPassage.id, rootForPane])
 
   useEffect(() => {
     setSelection(null)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { readStringArray } from '@/lib/grading'
 import type { ExamGroup, UserAnswer } from '@/lib/types'
