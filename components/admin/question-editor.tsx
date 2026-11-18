@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Pencil, Plus, Save, X } from 'lucide-react'
+import { Check, Save, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import type { ExamGroup, Question } from '@/lib/types'
@@ -20,8 +20,7 @@ function parseQuestionRange(range: string): number[] {
     }
   }
   if (cleaned.includes(',')) {
-    const nums = cleaned.split(',').map(Number).filter((n) => Number.isFinite(n))
-    return nums
+    return cleaned.split(',').map(Number).filter((n) => Number.isFinite(n))
   }
   const single = Number(cleaned)
   return Number.isFinite(single) ? [single] : []
@@ -29,7 +28,7 @@ function parseQuestionRange(range: string): number[] {
 
 function toChoices(values: string[]): Choice[] {
   return values.map((label) => {
-    const match = label.match(/^([A-E])\s*[.)\-:]/i)
+    const match = label.match(/^([A-Z])\s*[.)\-:]/i)
     return { value: match?.[1]?.toUpperCase() ?? label, label }
   })
 }
@@ -62,13 +61,15 @@ export function QuestionEditor({
   const [explanation, setExplanation] = useState(question?.explanation ?? '')
   const [questionRange, setQuestionRange] = useState(() => {
     const accepted = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
-    return accepted.length > 1 ? `${question?.question_number ?? ''}-${(question?.question_number ?? 0) + accepted.length - 1}` : ''
+    const baseNum = question?.question_number ?? nextNumber
+    return accepted.length > 1 ? `${baseNum}-${baseNum + accepted.length - 1}` : ''
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setNumber(String(question?.question_number ?? nextNumber))
+    const baseNum = question?.question_number ?? nextNumber
+    setNumber(String(baseNum))
     setQuestionText(question?.question_text ?? '')
     const values = Array.isArray(question?.options) ? question.options : Array.isArray(group.shared_options) ? group.shared_options : []
     setOptionsText(values.map(String).join('\n'))
@@ -77,17 +78,42 @@ export function QuestionEditor({
     setSelectedAnswers(accepted)
     setTextAnswers([accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? ''])
     setExplanation(question?.explanation ?? '')
-    const acc = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
-    setQuestionRange(acc.length > 1 ? `${question?.question_number ?? ''}-${(question?.question_number ?? 0) + acc.length - 1}` : '')
+    setQuestionRange(accepted.length > 1 ? `${baseNum}-${baseNum + accepted.length - 1}` : '')
     setError(null)
   }, [group.id, nextNumber, question?.id])
 
   const choices = useMemo(() => toChoices(optionsText.split('\n').map((item) => item.trim()).filter(Boolean)), [optionsText])
 
+  const handleRangeChange = (val: string) => {
+    setQuestionRange(val)
+    const nums = parseQuestionRange(val)
+    if (nums.length > 0 && nums[0] > 0) {
+      setNumber(String(nums[0]))
+    }
+  }
+
+  const handleNumberChange = (val: string) => {
+    setNumber(val)
+    const n = Number(val)
+    if (Number.isInteger(n) && n > 0 && selectedAnswers.length > 1) {
+      setQuestionRange(`${n}-${n + selectedAnswers.length - 1}`)
+    }
+  }
+
+  const toggleMultiAnswer = (choiceValue: string, checked: boolean) => {
+    const next = checked ? selectedAnswers.filter((item) => item !== choiceValue) : [...selectedAnswers, choiceValue]
+    setSelectedAnswers(next)
+    const n = Number(number)
+    if (Number.isInteger(n) && n > 0) {
+      setQuestionRange(next.length > 1 ? `${n}-${n + next.length - 1}` : '')
+    }
+  }
+
   const save = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
-    const questionNumber = Number(number)
+    const parsedNums = parseQuestionRange(questionRange)
+    const questionNumber = parsedNums.length > 0 ? parsedNums[0] : Number(number)
     if (!Number.isInteger(questionNumber) || questionNumber < 1) {
       setError('Số câu phải là số nguyên lớn hơn 0.')
       return
@@ -98,12 +124,6 @@ export function QuestionEditor({
       : group.input_type === 'combo_box'
         ? (singleAnswer ? [singleAnswer] : [])
         : selectedAnswers
-
-    if (group.input_type === 'check_box' && !accepted.length) {
-      setError('Hãy chọn ít nhất một đáp án đúng.')
-      setSaving(false)
-      return
-    }
 
     if (!accepted.length) {
       setError('Hãy chọn hoặc nhập ít nhất một đáp án đúng.')
@@ -132,38 +152,100 @@ export function QuestionEditor({
     setSaving(false)
   }
 
-  return <form onSubmit={(event) => void save(event)} className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
-    <div className="mb-3 flex items-center justify-between gap-3"><p className="text-sm font-bold text-slate-800">{question ? `Chỉnh sửa câu ${question.question_number}` : 'Thêm câu hỏi'}</p><button type="button" onClick={onCancel} className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700" aria-label="Đóng biểu mẫu"><X className="size-4" /></button></div>
-    <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
-      <label className="text-xs font-semibold text-slate-600">Số câu<input type="number" min="1" value={number} onChange={(event) => setNumber(event.target.value)} required className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" /></label>
-      <label className="text-xs font-semibold text-slate-600">Nội dung câu hỏi (không bắt buộc)<textarea value={questionText} onChange={(event) => setQuestionText(event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
-    </div>
+  return (
+    <form onSubmit={(event) => void save(event)} className="rounded-xl border border-sky-100 bg-sky-50/40 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-sm font-bold text-slate-800">{question ? `Chỉnh sửa câu ${question.question_number}` : 'Thêm câu hỏi'}</p>
+        <button type="button" onClick={onCancel} className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700" aria-label="Đóng biểu mẫu">
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[110px_1fr]">
+        <label className="text-xs font-semibold text-slate-600">
+          Số câu
+          <input type="number" min="1" value={number} onChange={(event) => handleNumberChange(event.target.value)} required className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" />
+        </label>
+        <label className="text-xs font-semibold text-slate-600">
+          Nội dung câu hỏi (không bắt buộc)
+          <textarea value={questionText} onChange={(event) => setQuestionText(event.target.value)} rows={2} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
+        </label>
+      </div>
 
-    {group.input_type === 'text_box' ? <div className="mt-4 grid gap-3 sm:grid-cols-3">
-      {textAnswers.map((answer, index) => <label key={index} className="text-xs font-semibold text-slate-600">Đáp án {index + 1}<input value={answer} onChange={(event) => setTextAnswers((current) => current.map((value, i) => i === index ? event.target.value : value))} placeholder="Có thể để trống" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" /></label>)}
-      <p className="sm:col-span-3 text-[11px] leading-5 text-slate-500">Nhập tối đa ba cách viết tương đương. Không phân biệt hoa/thường khi chấm.</p>
-    </div> : <div className="mt-4 space-y-3">
-      <label className="block text-xs font-semibold text-slate-600">Các lựa chọn <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng)</span><textarea value={optionsText} onChange={(event) => setOptionsText(event.target.value)} rows={4} placeholder={'A. Option one\nB. Option two\nC. Option three'} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
-      {group.input_type === 'combo_box' ? <label className="block text-xs font-semibold text-slate-600">Đáp án đúng<select value={singleAnswer} onChange={(event) => setSingleAnswer(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="">Chọn một đáp án</option>{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label> : <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-xs font-semibold text-slate-600">Dải số câu liên kết <span className="font-normal text-slate-400">(vd: 25-26 hoặc 25, 26)</span><input value={questionRange} onChange={(event) => setQuestionRange(event.target.value)} placeholder="25-26" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" /></label>
-          <label className="text-xs font-semibold text-slate-600">Số phương án học viên cần chọn<input type="number" min="1" max="10" value={selectedAnswers.length || ''} readOnly className="mt-1.5 h-9 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 outline-none" /><p className="mt-1 text-[11px] text-slate-400">Tự động đồng bộ với số đáp án đúng đã chọn</p></label>
+      {group.input_type === 'text_box' ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {textAnswers.map((answer, index) => (
+            <label key={index} className="text-xs font-semibold text-slate-600">
+              Đáp án {index + 1}
+              <input value={answer} onChange={(event) => setTextAnswers((current) => current.map((value, i) => (i === index ? event.target.value : value)))} placeholder="Có thể để trống" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" />
+            </label>
+          ))}
+          <p className="sm:col-span-3 text-[11px] leading-5 text-slate-500">Nhập tối đa ba cách viết tương đương. Không phân biệt hoa/thường khi chấm.</p>
         </div>
-        {(() => {
-          const nums = parseQuestionRange(questionRange)
-          const count = selectedAnswers.length
-          const label = nums.length > 1 ? `Liên kết ${nums.length} câu (Câu ${nums.join(', ')}) · Học viên phải chọn đúng ${count} phương án` : count > 0 ? `Học viên phải chọn đúng ${count} phương án` : 'Chọn đáp án đúng bên dưới'
-          return <div className="inline-flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">{label}</div>
-        })()}
-        <fieldset><legend className="text-xs font-semibold text-slate-600">Đáp án đúng (chọn tất cả đáp án cần thiết)</legend><div className="mt-2 flex flex-wrap gap-2">{choices.map((choice) => {
-          const checked = selectedAnswers.includes(choice.value)
-          return <label key={choice.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-sky-300 bg-white text-sky-800' : 'border-slate-200 bg-white text-slate-600'}`}><input type="checkbox" checked={checked} onChange={() => setSelectedAnswers((current) => checked ? current.filter((item) => item !== choice.value) : [...current, choice.value])} className="sr-only" /><span className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300'}`}>{checked && <Check className="size-3" />}</span>{choice.label}</label>
-        })}</div></fieldset>
-      </div>}
-    </div>}
+      ) : (
+        <div className="mt-4 space-y-3">
+          <label className="block text-xs font-semibold text-slate-600">
+            Các lựa chọn <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng)</span>
+            <textarea value={optionsText} onChange={(event) => setOptionsText(event.target.value)} rows={4} placeholder={'A. Option one\nB. Option two\nC. Option three'} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
+          </label>
+          {group.input_type === 'combo_box' ? (
+            <label className="block text-xs font-semibold text-slate-600">
+              Đáp án đúng
+              <select value={singleAnswer} onChange={(event) => setSingleAnswer(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400">
+                <option value="">Chọn một đáp án</option>
+                {choices.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-slate-600">
+                  Dải số câu liên kết <span className="font-normal text-slate-400">(vd: 25-26 hoặc 25, 26)</span>
+                  <input value={questionRange} onChange={(event) => handleRangeChange(event.target.value)} placeholder="25-26" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Số phương án học viên cần chọn
+                  <input type="number" min="1" max="10" value={selectedAnswers.length || ''} readOnly className="mt-1.5 h-9 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 outline-none" />
+                  <p className="mt-1 text-[11px] text-slate-400">Tự động đồng bộ với số đáp án đúng đã chọn</p>
+                </label>
+              </div>
+              {(() => {
+                const nums = parseQuestionRange(questionRange)
+                const count = selectedAnswers.length
+                const label =
+                  nums.length > 1
+                    ? `Liên kết ${nums.length} câu (Câu ${nums.join(', ')}) · Học viên phải chọn đúng ${count} phương án`
+                    : count > 0
+                      ? `Học viên phải chọn đúng ${count} phương án`
+                      : 'Chọn đáp án đúng bên dưới'
+                return <div className="inline-flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">{label}</div>
+              })()}
+              <fieldset>
+                <legend className="text-xs font-semibold text-slate-600">Đáp án đúng (chọn tất cả đáp án cần thiết)</legend>
+                <div className="mt-2 flex flex-col gap-2">
+                  {choices.map((choice) => {
+                    const checked = selectedAnswers.includes(choice.value)
+                    return (
+                      <label key={choice.value} className={`relative inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-sky-300 bg-white text-sky-800' : 'border-slate-200 bg-white text-slate-600'}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleMultiAnswer(choice.value, checked)} className="absolute inset-0 m-0 size-full cursor-pointer opacity-0" />
+                        <span className={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300'}`}>{checked && <Check className="size-3" />}</span>
+                        <span>{choice.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </fieldset>
+            </div>
+          )}
+        </div>
+      )}
 
-    <label className="mt-4 block text-xs font-semibold text-slate-600">Giải thích<textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={2} placeholder="Giải thích ngắn gọn vì sao đáp án đúng..." className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
-    {error && <p role="alert" className="mt-3 text-xs text-rose-700">{error}</p>}
-    <div className="mt-4 flex justify-end gap-2"><Button type="button" variant="outline" size="sm" onClick={onCancel} className="rounded-lg">Hủy</Button><Button type="submit" size="sm" disabled={saving} className="rounded-lg bg-sky-600 text-white hover:bg-sky-700"><Save className="mr-1.5 size-3.5" />{saving ? 'Đang lưu' : 'Lưu câu hỏi'}</Button></div>
-  </form>
-}
+      <label className="mt-4 block text-xs font-semibold text-slate-600">
+        Giải thích
+        <textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={2} placeholder="Giải thích ngắn gọn vì sao đáp án đúng..." className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
+      </label>
+      {error && (
+        <p role="alert" className="mt-3 text-
