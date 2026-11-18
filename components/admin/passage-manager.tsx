@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, ChevronDown, CirclePlus, LoaderCircle, Plus, Save, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, CirclePlus, LoaderCircle, Plus, Save, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { QuestionGroupManager } from '@/components/admin/question-group-manager'
 import { RichTextEditor } from '@/components/admin/rich-text-editor'
+import { AIParseTestModal } from '@/components/admin/ai-parse-test-modal'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import type { ExamGroup, Passage, Question, QuestionGroup } from '@/lib/types'
@@ -25,6 +26,7 @@ export function PassageManager() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [aiModalOpen, setAiModalOpen] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -169,7 +171,10 @@ export function PassageManager() {
         <div className="relative mt-1.5 max-w-[620px]"><select id="passage-picker" value={selectedPassageId} onChange={(event) => { setSelectedPassageId(event.target.value); setNotice(null); setError(null) }} className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-sky-400" disabled={!passages.length}><option value="" disabled>{passages.length ? 'Chọn bài đọc' : 'Chưa có bài đọc'}</option>{passages.map((passage) => <option key={passage.id} value={passage.id}>Passage {passage.passage_part} · {passage.title}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-3.5 size-4 text-slate-400" /></div>
       </div>
       <Button variant="outline" onClick={createPassage} className="h-10 shrink-0 rounded-lg border-slate-200"><CirclePlus className="mr-2 size-4" /> Tạo bài đọc mới</Button>
+      <Button onClick={() => setAiModalOpen(true)} className="h-10 shrink-0 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"><Sparkles className="mr-2 size-4" /> Soạn bài &amp; câu hỏi bằng AI</Button>
     </div>
+
+    <AIParseTestModal open={aiModalOpen} onClose={() => setAiModalOpen(false)} onSaved={(passageId) => { void loadData().then(() => { if (passageId) setSelectedPassageId(passageId); setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra và lưu lại nếu cần.'); setError(null); }) }} />
 
     {loading && <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" /> Đang tải thư viện…</div>}
     {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}

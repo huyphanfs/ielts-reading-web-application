@@ -40,7 +40,7 @@ export function AIParseTestModal({
 }: {
   open: boolean
   onClose: () => void
-  onSaved: () => void
+  onSaved: (passageId: string) => void
 }) {
   const [rawText, setRawText] = useState('')
   const [parsing, setParsing] = useState(false)
@@ -146,7 +146,7 @@ export function AIParseTestModal({
 
       setParsed(null)
       setRawText('')
-      onSaved()
+      onSaved(passageId)
       onClose()
     } catch {
       setError('Lỗi không xác định khi lưu.')

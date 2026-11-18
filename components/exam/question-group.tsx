@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, Search } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { readStringArray } from '@/lib/grading'
 import type { ExamGroup, UserAnswer } from '@/lib/types'
@@ -77,6 +77,90 @@ export function SharedContentAnswers({
   return <div ref={rootRef} className="rich-content" dangerouslySetInnerHTML={{ __html: markup }} />
 }
 
+function ComboBox({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  options: Array<{ value: string; label: string }>
+  value: string
+  onChange: (value: string) => void
+  ariaLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const selected = options.find((opt) => opt.value === value)
+  const filtered = useMemo(() => {
+    if (!query.trim()) return options
+    const q = query.trim().toLowerCase()
+    return options.filter((opt) => opt.value.toLowerCase().includes(q) || opt.label.toLowerCase().includes(q))
+  }, [options, query])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selectOption = (optValue: string) => {
+    onChange(optValue)
+    setOpen(false)
+    setQuery('')
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (filtered.length === 1) selectOption(filtered[0].value)
+      else if (filtered.length > 1) selectOption(filtered[0].value)
+    }
+    if (e.key === 'Escape') { setOpen(false); setQuery('') }
+  }
+
+  return <div ref={ref} className="relative max-w-[420px]">
+    <div className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label={ariaLabel}
+        value={open ? query : (selected?.label ?? '')}
+        placeholder="Chọn hoặc gõ đáp án..."
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setOpen(true); setQuery(e.target.value); if (selected) onChange('') }}
+        onKeyDown={handleKeyDown}
+        autoComplete="off"
+        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+      />
+      <ChevronDown className={`pointer-events-none absolute right-3 top-3 size-4 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+    </div>
+    {open && (
+      <ul role="listbox" className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+        {filtered.length ? filtered.map((opt) => (
+          <li key={opt.value} role="option" aria-selected={opt.value === value}>
+            <button
+              type="button"
+              onClick={() => selectOption(opt.value)}
+              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-sky-50 ${opt.value === value ? 'bg-sky-50 font-semibold text-sky-800' : 'text-slate-700'}`}
+            >
+              <span>{opt.label}</span>
+              {opt.value === value && <Check className="size-4 text-sky-600" />}
+            </button>
+          </li>
+        )) : <li className="px-3 py-2 text-sm text-slate-400">Không tìm thấy đáp án</li>}
+      </ul>
+    )}
+  </div>
+}
+
 function QuestionControl({
   group,
   question,
@@ -103,26 +187,28 @@ function QuestionControl({
   }
 
   if (group.input_type === 'combo_box') {
-    return <div className="relative max-w-[420px]">
-      <select
-        aria-label={`Chọn đáp án cho câu ${question.question_number}`}
-        value={typeof answer === 'string' ? answer : ''}
-        onChange={(event) => onAnswer(event.target.value)}
-        className="h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
-      >
-        <option value="">Chọn đáp án</option>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-3 size-4 text-slate-400" />
-    </div>
+    return <ComboBox
+      options={options}
+      value={typeof answer === 'string' ? answer : ''}
+      onChange={onAnswer}
+      ariaLabel={`Chọn đáp án cho câu ${question.question_number}`}
+    />
   }
 
-  return <fieldset className="flex flex-wrap gap-x-4 gap-y-2">
+  const maxSelection = getMaxSelection(group, question)
+  const acceptedCount = readStringArray(question.accepted_answers).length
+  const linkedCount = acceptedCount > 1 ? acceptedCount : maxSelection ?? 0
+  const linkedRange = linkedCount > 1 ? `${question.question_number} – ${question.question_number + linkedCount - 1}` : String(question.question_number)
+  const selectedCount = selected.length
+  const atMax = maxSelection ? selectedCount >= maxSelection : false
+
+  return <div className="space-y-3">
+    {linkedCount > 1 && <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">
+      Chọn {linkedCount} phương án (Câu {linkedRange}) · Đã chọn: <span className="tabular-nums">{selectedCount}/{linkedCount}</span>
+    </div>}
+    <fieldset className="flex flex-wrap gap-x-4 gap-y-2">
     <legend className="sr-only">Chọn một hoặc nhiều đáp án cho câu {question.question_number}</legend>
-    {(() => {
-      const maxSelection = getMaxSelection(group, question)
-      const atMax = maxSelection ? selected.length >= maxSelection : false
-      return options.map((option) => {
+    {options.map((option) => {
       const checked = selected.includes(option.value)
       const disabled = !checked && atMax
       return <label key={option.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
@@ -136,9 +222,9 @@ function QuestionControl({
         <span aria-hidden="true" className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="size-3" />}</span>
         {option.label}
       </label>
-      })
-    })()}
-  </fieldset>
+    })}
+    </fieldset>
+  </div>
 }
 
 function getMaxSelection(group: ExamGroup, question: ExamGroup['questions'][number]) {

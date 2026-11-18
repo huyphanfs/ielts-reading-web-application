@@ -10,6 +10,23 @@ const supabase = createClient()
 
 type Choice = { value: string; label: string }
 
+function parseQuestionRange(range: string): number[] {
+  if (!range.trim()) return []
+  const cleaned = range.trim().replace(/\s/g, '')
+  if (cleaned.includes('-')) {
+    const [start, end] = cleaned.split('-').map(Number)
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+      return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+    }
+  }
+  if (cleaned.includes(',')) {
+    const nums = cleaned.split(',').map(Number).filter((n) => Number.isFinite(n))
+    return nums
+  }
+  const single = Number(cleaned)
+  return Number.isFinite(single) ? [single] : []
+}
+
 function toChoices(values: string[]): Choice[] {
   return values.map((label) => {
     const match = label.match(/^([A-E])\s*[.)\-:]/i)
@@ -43,6 +60,10 @@ export function QuestionEditor({
     return [accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? '']
   })
   const [explanation, setExplanation] = useState(question?.explanation ?? '')
+  const [questionRange, setQuestionRange] = useState(() => {
+    const accepted = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
+    return accepted.length > 1 ? `${question?.question_number ?? ''}-${(question?.question_number ?? 0) + accepted.length - 1}` : ''
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,6 +77,8 @@ export function QuestionEditor({
     setSelectedAnswers(accepted)
     setTextAnswers([accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? ''])
     setExplanation(question?.explanation ?? '')
+    const acc = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
+    setQuestionRange(acc.length > 1 ? `${question?.question_number ?? ''}-${(question?.question_number ?? 0) + acc.length - 1}` : '')
     setError(null)
   }, [group.id, nextNumber, question?.id])
 
@@ -75,6 +98,12 @@ export function QuestionEditor({
       : group.input_type === 'combo_box'
         ? (singleAnswer ? [singleAnswer] : [])
         : selectedAnswers
+
+    if (group.input_type === 'check_box' && !accepted.length) {
+      setError('Hãy chọn ít nhất một đáp án đúng.')
+      setSaving(false)
+      return
+    }
 
     if (!accepted.length) {
       setError('Hãy chọn hoặc nhập ít nhất một đáp án đúng.')
@@ -115,10 +144,22 @@ export function QuestionEditor({
       <p className="sm:col-span-3 text-[11px] leading-5 text-slate-500">Nhập tối đa ba cách viết tương đương. Không phân biệt hoa/thường khi chấm.</p>
     </div> : <div className="mt-4 space-y-3">
       <label className="block text-xs font-semibold text-slate-600">Các lựa chọn <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng)</span><textarea value={optionsText} onChange={(event) => setOptionsText(event.target.value)} rows={4} placeholder={'A. Option one\nB. Option two\nC. Option three'} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
-      {group.input_type === 'combo_box' ? <label className="block text-xs font-semibold text-slate-600">Đáp án đúng<select value={singleAnswer} onChange={(event) => setSingleAnswer(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="">Chọn một đáp án</option>{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label> : <fieldset><legend className="text-xs font-semibold text-slate-600">Đáp án đúng (chọn tất cả đáp án cần thiết)</legend><div className="mt-2 flex flex-wrap gap-2">{choices.map((choice) => {
-        const checked = selectedAnswers.includes(choice.value)
-        return <label key={choice.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-sky-300 bg-white text-sky-800' : 'border-slate-200 bg-white text-slate-600'}`}><input type="checkbox" checked={checked} onChange={() => setSelectedAnswers((current) => checked ? current.filter((item) => item !== choice.value) : [...current, choice.value])} className="sr-only" /><span className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300'}`}>{checked && <Check className="size-3" />}</span>{choice.label}</label>
-      })}</div></fieldset>}
+      {group.input_type === 'combo_box' ? <label className="block text-xs font-semibold text-slate-600">Đáp án đúng<select value={singleAnswer} onChange={(event) => setSingleAnswer(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="">Chọn một đáp án</option>{choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label> : <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-semibold text-slate-600">Dải số câu liên kết <span className="font-normal text-slate-400">(vd: 25-26 hoặc 25, 26)</span><input value={questionRange} onChange={(event) => setQuestionRange(event.target.value)} placeholder="25-26" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" /></label>
+          <label className="text-xs font-semibold text-slate-600">Số phương án học viên cần chọn<input type="number" min="1" max="10" value={selectedAnswers.length || ''} readOnly className="mt-1.5 h-9 w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 outline-none" /><p className="mt-1 text-[11px] text-slate-400">Tự động đồng bộ với số đáp án đúng đã chọn</p></label>
+        </div>
+        {(() => {
+          const nums = parseQuestionRange(questionRange)
+          const count = selectedAnswers.length
+          const label = nums.length > 1 ? `Liên kết ${nums.length} câu (Câu ${nums.join(', ')}) · Học viên phải chọn đúng ${count} phương án` : count > 0 ? `Học viên phải chọn đúng ${count} phương án` : 'Chọn đáp án đúng bên dưới'
+          return <div className="inline-flex items-center gap-2 rounded-lg border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">{label}</div>
+        })()}
+        <fieldset><legend className="text-xs font-semibold text-slate-600">Đáp án đúng (chọn tất cả đáp án cần thiết)</legend><div className="mt-2 flex flex-wrap gap-2">{choices.map((choice) => {
+          const checked = selectedAnswers.includes(choice.value)
+          return <label key={choice.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-sky-300 bg-white text-sky-800' : 'border-slate-200 bg-white text-slate-600'}`}><input type="checkbox" checked={checked} onChange={() => setSelectedAnswers((current) => checked ? current.filter((item) => item !== choice.value) : [...current, choice.value])} className="sr-only" /><span className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300'}`}>{checked && <Check className="size-3" />}</span>{choice.label}</label>
+        })}</div></fieldset>
+      </div>}
     </div>}
 
     <label className="mt-4 block text-xs font-semibold text-slate-600">Giải thích<textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={2} placeholder="Giải thích ngắn gọn vì sao đáp án đúng..." className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
