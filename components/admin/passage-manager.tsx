@@ -56,7 +56,18 @@ export function PassageManager() {
   const attachedGroups = useMemo<ExamGroup[]>(() => groups
     .filter((group) => group.passage_id === selectedPassageId)
     .map((group) => ({ ...group, questions: questions.filter((question) => question.group_id === group.id) })), [groups, questions, selectedPassageId])
-  const countValid = attachedQuestions.length === 13 || attachedQuestions.length === 14
+  const effectiveQuestionCount = useMemo(
+  () =>
+    attachedQuestions.reduce((sum, q) => {
+      const group = groups.find((g) => g.id === q.group_id)
+      if (group?.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1) {
+        return sum + q.accepted_answers.length
+      }
+      return sum + 1
+    }, 0),
+  [attachedQuestions, groups],
+)
+const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 14
 
   useEffect(() => {
     if (!activePassage) {
