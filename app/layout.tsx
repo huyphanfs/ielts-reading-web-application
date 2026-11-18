@@ -1,7 +1,14 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Be_Vietnam_Pro } from 'next/font/google'
 import { AuthProvider } from '@/components/auth-provider'
 import './globals.css'
+
+const beVietnamPro = Be_Vietnam_Pro({
+  subsets: ['vietnamese', 'latin'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'IELTS Reading | Luyện thi IELTS Academic',
@@ -20,7 +27,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light',
-  themeColor: '#f7f8fc',
+  themeColor: '#F8FAFC',
   width: 'device-width',
   initialScale: 1,
 }
@@ -28,7 +35,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="vi" className="light">
-      <body className="antialiased">
+      <body className={`${beVietnamPro.className} antialiased`}>
         <AuthProvider>{children}</AuthProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

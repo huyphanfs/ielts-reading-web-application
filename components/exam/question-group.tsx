@@ -95,7 +95,7 @@ function QuestionControl({
       value={typeof answer === 'string' ? answer : ''}
       onChange={(event) => onAnswer(event.target.value)}
       autoComplete="off"
-      className="h-10 w-full max-w-[340px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+      className="h-10 w-full max-w-[340px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
     />
   }
 
@@ -105,7 +105,7 @@ function QuestionControl({
         aria-label={`Chọn đáp án cho câu ${question.question_number}`}
         value={typeof answer === 'string' ? answer : ''}
         onChange={(event) => onAnswer(event.target.value)}
-        className="h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+        className="h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
       >
         <option value="">Chọn đáp án</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -118,14 +118,14 @@ function QuestionControl({
     <legend className="sr-only">Chọn một hoặc nhiều đáp án cho câu {question.question_number}</legend>
     {options.map((option) => {
       const checked = selected.includes(option.value)
-      return <label key={option.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${checked ? 'border-indigo-300 bg-indigo-50 text-indigo-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
+      return <label key={option.value} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
         <input
           type="checkbox"
           checked={checked}
           onChange={() => onAnswer(checked ? selected.filter((item) => item !== option.value) : [...selected, option.value])}
           className="peer sr-only"
         />
-        <span aria-hidden="true" className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="size-3" />}</span>
+        <span aria-hidden="true" className={`flex size-4 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'}`}>{checked && <Check className="size-3" />}</span>
         {option.label}
       </label>
     })}
@@ -147,7 +147,7 @@ export function QuestionGroupCard({
   return <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby={`group-${group.id}`}>
     <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="rounded-md bg-indigo-50 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-indigo-700">{group.question_category}</span>
+        <span className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-sky-700">{group.question_category}</span>
         <span className="text-xs text-slate-500">{group.questions.length} câu</span>
       </div>
       {group.instruction && <div id={`group-${group.id}`} className="rich-content mt-3 text-sm font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}

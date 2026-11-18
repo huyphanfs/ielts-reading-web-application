@@ -11,8 +11,8 @@ export function AppHeader({ compact = false }: { compact?: boolean }) {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/85 backdrop-blur-xl">
       <div className={`mx-auto flex h-[68px] max-w-[1440px] items-center justify-between px-4 sm:px-6 ${compact ? 'max-w-none' : ''}`}>
-        <Link href="/" className="group flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-indigo-500" aria-label="IELTS Reading — trang chủ">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200 transition-transform group-hover:-rotate-3">
+        <Link href="/" className="group flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-sky-500" aria-label="IELTS Reading — trang chủ">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-200 transition-transform group-hover:-rotate-3">
             <BookOpen className="size-5" aria-hidden="true" />
           </span>
           <span className="leading-tight">
@@ -37,7 +37,7 @@ export function AppHeader({ compact = false }: { compact?: boolean }) {
               </Button>
             </div>
           ) : (
-            <Button onClick={() => void signInWithGoogle()} size="sm" className="h-9 rounded-lg bg-indigo-600 px-3 text-white shadow-sm hover:bg-indigo-700">
+            <Button onClick={() => void signInWithGoogle()} size="sm" className="h-9 rounded-lg bg-sky-600 px-3 text-white shadow-sm hover:bg-sky-700">
               <Sparkles className="mr-1.5 size-4" />
               <span className="hidden sm:inline">Đăng nhập Google</span>
               <span className="sm:hidden">Đăng nhập</span>
@@ -46,7 +46,7 @@ export function AppHeader({ compact = false }: { compact?: boolean }) {
           {user && profile?.avatar_url ? (
             <img src={profile.avatar_url} alt="" className="size-8 rounded-full border border-slate-200 object-cover" referrerPolicy="no-referrer" />
           ) : user ? (
-            <span className="flex size-8 items-center justify-center rounded-full bg-indigo-50 text-indigo-700" aria-hidden="true"><UserRound className="size-4" /></span>
+            <span className="flex size-8 items-center justify-center rounded-full bg-sky-50 text-sky-700" aria-hidden="true"><UserRound className="size-4" /></span>
           ) : null}
         </nav>
       </div>

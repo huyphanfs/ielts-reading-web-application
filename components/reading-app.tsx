@@ -10,7 +10,8 @@ import { useAuth } from '@/components/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 import { loadExamDefinition } from '@/lib/exam-data'
 import { gradeExam } from '@/lib/grading'
-import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, UserAnswer } from '@/lib/types'
+import { buildDemoExamDefinition, DEMO_TEST_CARD, DEMO_TEST_TITLE } from '@/lib/demo-test'
+import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
 
 const supabase = createClient()
 
@@ -21,6 +22,7 @@ type TestRow = {
   passage_2_id: string | null
   passage_3_id: string | null
   created_at: string
+  isDemo?: boolean
 }
 
 function formatMinutes(seconds: number) {
@@ -40,7 +42,7 @@ export function ReadingApp() {
   const [result, setResult] = useState<GradingSummary | null>(null)
   const [savedResult, setSavedResult] = useState<SavedTestResult | null>(null)
   const [resultWarning, setResultWarning] = useState<string | null>(null)
-  const [studyNotes, setStudyNotes] = useState<Array<{ id: string; quote: string; text: string; color?: string }>>([])
+  const [studyNotes, setStudyNotes] = useState<StudyNote[]>([])
   const [resultTimeSpent, setResultTimeSpent] = useState(0)
   const [timed, setTimed] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -82,6 +84,7 @@ export function ReadingApp() {
     () => passages.map((passage) => ({ ...passage, actualCount: counts[passage.id] ?? 0 })),
     [passages, counts],
   )
+  const availableTests: TestRow[] = tests.length ? tests : [DEMO_TEST_CARD]
   const practicePassages = displayPassages.filter((passage) => passage.is_test_only !== true)
   const testOnlyCount = displayPassages.filter((passage) => passage.is_test_only === true).length
 
@@ -92,18 +95,19 @@ export function ReadingApp() {
   }
 
   const beginExam = async (input: {
-    selectedPassages: Passage[]
+    selectedPassages?: Passage[]
     title: string
     mode: 'test' | 'practice'
     testId?: string | null
     retryQuestionIds?: string[]
+    definition?: ExamDefinition
   }) => {
-    if (!requireUser()) return
+    if (!input.definition?.isDemo && !requireUser()) return
     setStarting(true)
     setNotice(null)
     try {
-      const definition = await loadExamDefinition({
-        passages: input.selectedPassages,
+      const definition = input.definition ?? await loadExamDefinition({
+        passages: input.selectedPassages ?? [],
         title: input.title,
         mode: input.mode,
         isTimed: timed,
@@ -127,6 +131,12 @@ export function ReadingApp() {
   }
 
   const startTest = async (test: TestRow) => {
+    if (test.isDemo) {
+      const definition = buildDemoExamDefinition(timed)
+      await beginExam({ title: DEMO_TEST_TITLE, mode: 'test', definition })
+      return
+    }
+
     const ids = [test.passage_1_id, test.passage_2_id, test.passage_3_id].filter((id): id is string => Boolean(id))
     const selected = ids.map((id) => passages.find((passage) => passage.id === id)).filter((value): value is Passage => Boolean(value))
     if (selected.length !== 3) {
@@ -168,10 +178,20 @@ export function ReadingApp() {
     testId: null,
   })
 
-  const submitExam = async (answers: Record<string, UserAnswer>, timeSpent: number, notes: Array<{ id: string; quote: string; text: string; color?: string }>) => {
-    if (!exam || !user) return
+  const submitExam = async (answers: Record<string, UserAnswer>, timeSpent: number, notes: StudyNote[]) => {
+    if (!exam) return
     const summary = gradeExam(exam.questions, answers)
     setResultTimeSpent(timeSpent)
+    setStudyNotes(notes)
+
+    if (!user) {
+      setResult(summary)
+      setSavedResult(null)
+      setResultWarning('Bài thi mẫu đã được chấm trên thiết bị. Đăng nhập để lưu kết quả vào hồ sơ học viên.')
+      setScreen('results')
+      return
+    }
+
     const savedQuestionResults = notes.length
       ? [...summary.results, { record_type: 'study_notes', notes }]
       : summary.results
@@ -194,7 +214,6 @@ export function ReadingApp() {
       .single()
 
     setResult(summary)
-    setStudyNotes(notes)
     if (error) {
       setSavedResult(null)
       setResultWarning('Bài làm đã được chấm trên thiết bị nhưng chưa lưu được vào hồ sơ. Vui lòng kiểm tra quyền Supabase rồi gửi lại.')
@@ -243,40 +262,40 @@ export function ReadingApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8fc] text-slate-900">
+    <main className="min-h-screen bg-slate-50 text-slate-900">
       <AppHeader />
       <section className="relative isolate overflow-hidden border-b border-slate-200/70 bg-white">
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_82%_20%,rgba(99,102,241,0.13),transparent_38%),radial-gradient(ellipse_at_18%_80%,rgba(14,165,233,0.06),transparent_36%)]" />
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_82%_20%,rgba(2,132,199,0.13),transparent_38%),radial-gradient(ellipse_at_18%_80%,rgba(14,165,233,0.06),transparent_36%)]" />
         <div className="mx-auto grid max-w-[1240px] gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:py-[76px]">
           <div className="max-w-[660px]">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50/80 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-700">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50/80 px-3 py-1.5 text-xs font-semibold tracking-wide text-sky-700">
               <Sparkles className="size-3.5" /> IELTS ACADEMIC · READING
             </div>
             <h1 className="text-balance text-4xl font-bold leading-[1.08] tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-[58px]">
-              Đọc sâu hơn.<br /><span className="text-indigo-600">Làm bài tự tin hơn.</span>
+              Đọc sâu hơn.<br /><span className="text-sky-600">Làm bài tự tin hơn.</span>
             </h1>
             <p className="mt-5 max-w-[560px] text-base leading-7 text-slate-600 sm:text-lg">
               Luyện thi IELTS Reading trong môi trường mô phỏng máy tính, theo dõi tiến độ và hiểu rõ từng câu trả lời.
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100/80 px-3 py-2"><Clock3 className="size-4 text-indigo-600" /> 60 phút chuẩn đề</span>
-              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100/80 px-3 py-2"><BookOpenCheck className="size-4 text-indigo-600" /> 3 bài đọc · 40 câu</span>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100/80 px-3 py-2"><Clock3 className="size-4 text-sky-600" /> 60 phút chuẩn đề</span>
+              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100/80 px-3 py-2"><BookOpenCheck className="size-4 text-sky-600" /> 3 bài đọc · 40 câu</span>
             </div>
           </div>
 
           <div className="relative mx-auto w-full max-w-[520px] lg:ml-auto">
-            <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-indigo-100/80 via-white to-sky-100/70 blur-2xl" />
-            <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_26px_70px_-34px_rgba(35,49,93,0.34)]">
+            <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-sky-100/80 via-white to-sky-100/70 blur-2xl" />
+            <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_26px_70px_-34px_rgba(15,23,42,0.2)]">
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-600">Your learning space</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-600">Your learning space</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900">Bảng điều khiển luyện tập</p>
                 </div>
-                <span className="flex size-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><FileText className="size-5" /></span>
+                <span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600"><FileText className="size-5" /></span>
               </div>
               <div className="space-y-4 p-5">
                 <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                  <div className="flex items-center justify-between text-sm"><span className="font-medium text-slate-700">Bộ đề đã sẵn sàng</span><span className="font-semibold text-indigo-700">{tests.length} đề</span></div>
+                  <div className="flex items-center justify-between text-sm"><span className="font-medium text-slate-700">Bộ đề đã sẵn sàng</span><span className="font-semibold text-sky-700">{availableTests.length} đề</span></div>
                   <p className="mt-2 text-xs text-slate-500">Chọn đề thi hoặc bắt đầu một bài luyện tập.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -286,7 +305,7 @@ export function ReadingApp() {
                 {authLoading ? <div className="h-10 animate-pulse rounded-lg bg-slate-100" /> : user ? (
                   <div className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><Check className="size-4 shrink-0" /> Đăng nhập thành công · kết quả sẽ được lưu vào hồ sơ</div>
                 ) : (
-                  <button type="button" onClick={() => void signInWithGoogle()} className="flex w-full items-center justify-between rounded-xl bg-indigo-600 px-4 py-3.5 text-left text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700">
+                  <button type="button" onClick={() => void signInWithGoogle()} className="flex w-full items-center justify-between rounded-xl bg-sky-600 px-4 py-3.5 text-left text-sm font-semibold text-white shadow-lg shadow-sky-200 transition hover:bg-sky-700">
                     <span className="inline-flex items-center gap-2"><LockKeyhole className="size-4" /> Đăng nhập để lưu kết quả</span><ArrowRight className="size-4" />
                   </button>
                 )}
@@ -299,19 +318,19 @@ export function ReadingApp() {
       <section className="mx-auto max-w-[1240px] px-4 py-10 sm:px-6 sm:py-14">
         <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">Chọn cách luyện tập</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-600">Chọn cách luyện tập</p>
             <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Bắt đầu hành trình của bạn</h2>
           </div>
           <div role="radiogroup" aria-label="Chế độ thời gian" className="flex w-fit items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-            <button type="button" role="radio" aria-checked={timed} onClick={() => setTimed(true)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${timed ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Timer className="mr-1.5 inline size-3.5" />60 phút</button>
-            <button type="button" role="radio" aria-checked={!timed} onClick={() => setTimed(false)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${!timed ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Clock3 className="mr-1.5 inline size-3.5" />Không giới hạn</button>
+            <button type="button" role="radio" aria-checked={timed} onClick={() => setTimed(true)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${timed ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Timer className="mr-1.5 inline size-3.5" />60 phút</button>
+            <button type="button" role="radio" aria-checked={!timed} onClick={() => setTimed(false)} className={`rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${!timed ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Clock3 className="mr-1.5 inline size-3.5" />Không giới hạn</button>
           </div>
         </div>
 
         {authPrompt && !user && (
           <div role="alert" className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
             <span>Đăng nhập bằng Google để bắt đầu và lưu kết quả vào hồ sơ học viên.</span>
-            <Button size="sm" onClick={() => void signInWithGoogle()} className="rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Đăng nhập Google</Button>
+            <Button size="sm" onClick={() => void signInWithGoogle()} className="rounded-lg bg-sky-600 text-white hover:bg-sky-700">Đăng nhập Google</Button>
           </div>
         )}
         {notice && (
@@ -330,27 +349,28 @@ export function ReadingApp() {
           <div className="grid gap-5 lg:grid-cols-2"><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /></div>
         ) : (
           <div className="grid gap-5 lg:grid-cols-2">
-            <article className="group relative overflow-hidden rounded-2xl border border-indigo-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-950/5 sm:p-7">
-              <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-indigo-50 blur-2xl transition group-hover:bg-indigo-100" />
+            <article className="group relative overflow-hidden rounded-2xl border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
+              <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-sky-50 blur-2xl transition group-hover:bg-sky-100" />
               <div className="relative">
-                <div className="flex size-12 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200"><FileText className="size-5" /></div>
+                <div className="flex size-12 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-200"><FileText className="size-5" /></div>
                 <h3 className="mt-5 text-xl font-bold text-slate-950">Full Test · 40 câu</h3>
                 <p className="mt-2 max-w-[420px] text-sm leading-6 text-slate-600">Mô phỏng bài thi IELTS Academic Reading đầy đủ với ba passage và thời gian làm bài tùy chọn.</p>
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <Button disabled={starting} onClick={() => void startRandomTest()} className="h-10 rounded-lg bg-indigo-600 px-4 text-white hover:bg-indigo-700">
+                  <Button disabled={starting} onClick={() => void startRandomTest()} className="h-10 rounded-lg bg-sky-600 px-4 text-white hover:bg-sky-700">
                     {starting ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />} Tạo đề ngẫu nhiên
                   </Button>
                   <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-xs font-medium text-slate-600"><Clock3 className="size-3.5" />{timed ? '60 phút' : 'Không giới hạn'}</span>
                 </div>
                 <div className="mt-7 border-t border-slate-100 pt-5">
-                  <div className="mb-3 flex items-center justify-between"><h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Đề thi có sẵn</h4><span className="text-xs text-slate-400">{tests.length} bộ đề</span></div>
-                  {tests.length ? (
+                  <div className="mb-3 flex items-center justify-between"><h4 className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Đề thi có sẵn</h4><span className="text-xs text-slate-400">{availableTests.length} bộ đề</span></div>
+                  {availableTests.length ? (
                     <ul className="space-y-2">
-                      {tests.map((test) => {
-                        const valid = Boolean(test.passage_1_id && test.passage_2_id && test.passage_3_id)
+                      {availableTests.map((test) => {
+                        const valid = Boolean(test.isDemo || (test.passage_1_id && test.passage_2_id && test.passage_3_id))
+                        const questionTotal = test.isDemo ? 40 : [test.passage_1_id, test.passage_2_id, test.passage_3_id].reduce((sum, id) => sum + (id ? counts[id] ?? 0 : 0), 0)
                         return <li key={test.id}>
-                          <button type="button" disabled={starting || !valid} onClick={() => void startTest(test)} className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40 disabled:cursor-not-allowed disabled:opacity-50">
-                            <span><span className="block text-sm font-semibold text-slate-800">{test.title}</span><span className="mt-0.5 block text-xs text-slate-500">3 bài đọc · {[test.passage_1_id, test.passage_2_id, test.passage_3_id].reduce((sum, id) => sum + (id ? counts[id] ?? 0 : 0), 0)} câu</span></span><ArrowRight className="size-4 text-slate-400" />
+                          <button type="button" disabled={starting || !valid} onClick={() => void startTest(test)} className="flex w-full items-center justify-between rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-left transition hover:border-sky-300 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50">
+                            <span><span className="block text-sm font-semibold text-slate-800">{test.title}</span><span className="mt-0.5 block text-xs text-slate-500">3 bài đọc · {questionTotal} câu{test.isDemo ? ' · Sẵn sàng chơi thử' : ''}</span></span><ArrowRight className="size-4 text-slate-400" />
                           </button>
                         </li>
                       })}
@@ -360,7 +380,7 @@ export function ReadingApp() {
               </div>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-indigo-950/5 sm:p-7">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="flex size-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><BookOpenCheck className="size-5" /></div>
               <div className="mt-5 flex items-end justify-between gap-3">
                 <div><h3 className="text-xl font-bold text-slate-950">Luyện tập từng bài</h3><p className="mt-2 text-sm leading-6 text-slate-600">Chọn một passage để tập trung vào dạng bài hoặc chủ đề cụ thể.</p></div>

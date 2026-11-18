@@ -98,11 +98,11 @@ export function RichTextEditor({
   return <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-slate-50 p-2">
       <label className="sr-only" htmlFor={`${label}-font-family`}>Font chữ</label>
-      <select id={`${label}-font-family`} aria-label="Chọn font chữ" onChange={(event) => command('fontName', event.target.value)} defaultValue="Arial" className="h-8 max-w-[145px] rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-400">
+      <select id={`${label}-font-family`} aria-label="Chọn font chữ" onChange={(event) => command('fontName', event.target.value)} defaultValue="Arial" className="h-8 max-w-[145px] rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-sky-400">
         <option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Verdana">Verdana</option><option value="Times New Roman">Times New Roman</option>
       </select>
       <label className="sr-only" htmlFor={`${label}-font-size`}>Cỡ chữ</label>
-      <select id={`${label}-font-size`} aria-label="Chọn cỡ chữ" onChange={(event) => command('fontSize', event.target.value)} defaultValue="4" className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-400">
+      <select id={`${label}-font-size`} aria-label="Chọn cỡ chữ" onChange={(event) => command('fontSize', event.target.value)} defaultValue="4" className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-sky-400">
         {fontSizes.map((size) => <option key={size.value} value={size.value}>{size.label}</option>)}
       </select>
       <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
@@ -113,7 +113,7 @@ export function RichTextEditor({
       <ToolbarButton label="Chèn bảng" icon={<Table2 className="size-4" />} onClick={insertTable} />
       <ToolbarButton label={uploading ? 'Đang tải ảnh' : 'Nhập ảnh'} icon={<ImagePlus className="size-4" />} onClick={() => fileRef.current?.click()} disabled={uploading} />
       <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label="Chọn hình ảnh để tải lên" onChange={(event) => void uploadImage(event.target.files?.[0])} />
-      {uploading && <span className="px-1 text-xs text-indigo-700" role="status">Đang tải ảnh…</span>}
+      {uploading && <span className="px-1 text-xs text-sky-700" role="status">Đang tải ảnh…</span>}
     </div>
     <div
       ref={editorRef}
@@ -123,7 +123,7 @@ export function RichTextEditor({
       aria-label={label}
       aria-multiline="true"
       onInput={(event) => onChange(event.currentTarget.innerHTML)}
-      className="rich-content prose prose-slate max-w-none overflow-y-auto px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
+      className="rich-content prose prose-slate max-w-none overflow-y-auto px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
       style={{ minHeight }}
     />
     {message && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">{message}</p>}
@@ -131,5 +131,5 @@ export function RichTextEditor({
 }
 
 function ToolbarButton({ label, icon, onClick, disabled = false }: { label: string; icon: React.ReactNode; onClick: () => void; disabled?: boolean }) {
-  return <Button type="button" variant="ghost" size="icon-sm" aria-label={label} title={label} onClick={onClick} disabled={disabled} className="rounded-md text-slate-600 hover:bg-indigo-50 hover:text-indigo-700">{icon}</Button>
+  return <Button type="button" variant="ghost" size="icon-sm" aria-label={label} title={label} onClick={onClick} disabled={disabled} className="rounded-md text-slate-600 hover:bg-sky-50 hover:text-sky-700">{icon}</Button>
 }

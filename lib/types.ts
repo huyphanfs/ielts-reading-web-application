@@ -56,6 +56,7 @@ export type ExamDefinition = {
   mode: 'test' | 'practice'
   testId: string | null
   isTimed: boolean
+  isDemo?: boolean
   passages: Passage[]
   groups: ExamGroup[]
   questions: ExamQuestion[]
@@ -89,7 +90,15 @@ export type GradingSummary = {
   results: QuestionResult[]
 }
 
-export type StudyNote = { id: string; quote: string; text: string; color?: string }
+export type StudyNote = {
+  id: string
+  quote: string
+  text: string
+  color?: string
+  annotation_id?: string
+  passage_part?: Passage['passage_part']
+  pane?: 'passage' | 'questions'
+}
 
 export type SavedTestResult = {
   id: string
