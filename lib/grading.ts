@@ -12,33 +12,34 @@ export function readStringArray(value: unknown): string[] {
 }
 
 function normalize(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+  return (typeof value === 'string' ? value : '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
 
 function isEmpty(answer: UserAnswer | undefined) {
-  if (Array.isArray(answer)) return answer.every((item) => !item.trim())
-  return !answer?.trim()
+  if (answer === undefined || answer === null) return true
+  if (Array.isArray(answer)) return answer.every((item) => typeof item !== 'string' || !item.trim())
+  return typeof answer !== 'string' || !answer.trim()
 }
 
 function answersMatch(question: ExamQuestion, answer: UserAnswer | undefined) {
   const accepted = readStringArray(question.accepted_answers).map(normalize)
-  if (!accepted.length || answer === undefined) return false
+  if (!accepted.length || answer === undefined || answer === null) return false
 
   if (question.input_type === 'check_box') {
     if (question.total_sub && question.total_sub > 1) {
       const expected = accepted[0]
       if (!expected) return false
       if (!Array.isArray(answer)) return false
-      return answer.map(normalize).includes(expected)
+      return answer.map((item) => normalize(typeof item === 'string' ? item : '')).includes(expected)
     }
     if (!Array.isArray(answer)) return false
-    const chosen = answer.map(normalize).filter(Boolean).sort()
+    const chosen = answer.map((item) => normalize(typeof item === 'string' ? item : '')).filter(Boolean).sort()
     const expected = accepted.filter(Boolean).sort()
     return chosen.length === expected.length && chosen.every((value, index) => value === expected[index])
   }
 
   if (Array.isArray(answer)) return false
-  return accepted.includes(normalize(answer))
+  return accepted.includes(normalize(typeof answer === 'string' ? answer : ''))
 }
 
 export function bandFromScore(score: number, totalQuestions: number) {

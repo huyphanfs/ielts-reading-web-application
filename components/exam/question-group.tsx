@@ -29,7 +29,7 @@ function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) 
   }
 
   if (items.length) return items
-  const category = group.question_category.toLowerCase()
+  const category = (group.question_category ?? '').toLowerCase()
   if (category.includes('true/false')) return ['TRUE', 'FALSE', 'NOT GIVEN'].map((value) => ({ value, label: value }))
   if (category.includes('yes/no')) return ['YES', 'NO', 'NOT GIVEN'].map((value) => ({ value, label: value }))
   if (category.includes('matching information')) return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((value) => ({ value, label: `Paragraph ${value}` }))
@@ -65,7 +65,7 @@ export function SharedContentAnswers({
       const questionId = input.dataset.questionId
       if (!questionId) return
       const value = answers[questionId]
-      input.value = Array.isArray(value) ? value.join(', ') : value ?? ''
+      input.value = Array.isArray(value) ? value.join(', ') : (typeof value === 'string' ? value : '')
       const handleInput = () => onAnswer(questionId, input.value)
       input.addEventListener('input', handleInput)
       listeners.push(() => input.removeEventListener('input', handleInput))
@@ -173,7 +173,7 @@ function QuestionControl({
   onAnswer: (answer: UserAnswer) => void
 }) {
   const options = getOptions(question, group)
-  const selected = Array.isArray(answer) ? answer : []
+  const selected: string[] = Array.isArray(answer) ? answer.filter((item): item is string => typeof item === 'string') : []
 
   if (group.input_type === 'text_box') {
     return <input
@@ -230,7 +230,7 @@ function QuestionControl({
 function getMaxSelection(group: ExamGroup, question: ExamGroup['questions'][number]) {
   const accepted = readStringArray(question.accepted_answers)
   if (accepted.length > 1) return accepted.length
-  const instruction = group.instruction.toLowerCase()
+  const instruction = (group.instruction ?? '').toLowerCase()
   const match = instruction.match(/choose (\w+)/)
   if (match) {
     const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 }

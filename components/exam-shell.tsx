@@ -39,7 +39,9 @@ function getAnswerKey(questionId: string) {
 }
 
 function isAnswered(answer: UserAnswer | undefined) {
-  return Array.isArray(answer) ? answer.length > 0 : Boolean(answer?.trim())
+  if (answer === undefined || answer === null) return false
+  if (Array.isArray(answer)) return answer.some((item) => typeof item === 'string' && item.trim().length > 0)
+  return typeof answer === 'string' && answer.trim().length > 0
 }
 
 export function ExamShell({
@@ -139,7 +141,12 @@ export function ExamShell({
     for (const annotation of annotations) {
       if (annotation.passageId !== currentPassage.id) continue
       const root = rootForPane(annotation.pane)
-      if (root) applyAnnotation(root, annotation)
+      if (!root) continue
+      try {
+        applyAnnotation(root, annotation)
+      } catch {
+        // Skip annotations that fail to apply (e.g. DOM changed during render)
+      }
     }
   }, [annotations, answers, currentGroups, currentPassage.id, rootForPane])
 
@@ -302,13 +309,25 @@ export function ExamShell({
     setSplit(Math.max(40, Math.min(75, ((clientX - bounds.left) / bounds.width) * 100)))
   }
 
+  const questionPaneRef = useRef<HTMLElement>(null)
+
   const scrollToQuestion = (questionId: string, passagePart: number) => {
     const index = exam.passages.findIndex((passage) => passage.passage_part === passagePart)
+    const doScroll = () => {
+      const target = document.getElementById(`question-${questionId}`)
+      const container = questionPaneRef.current
+      if (target && container) {
+        const targetRect = target.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+        const offsetTop = target.offsetTop - container.offsetTop - (containerRect.height / 2) + (targetRect.height / 2)
+        container.scrollTo({ top: Math.max(0, offsetTop), behavior: 'smooth' })
+      }
+    }
     if (index >= 0 && index !== passageIndex) {
       setPassageIndex(index)
-      window.setTimeout(() => document.getElementById(`question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
+      window.setTimeout(doScroll, 100)
     } else {
-      document.getElementById(`question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      doScroll()
     }
   }
 
@@ -378,7 +397,7 @@ export function ExamShell({
           <span className="h-10 w-1 rounded-full bg-slate-300 transition group-hover:bg-sky-400" />
         </div>
 
-        <section className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
+        <section ref={questionPaneRef} className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
           <div className="w-full px-8 py-6">
             <div className="mb-4 flex items-center justify-between px-1">
               <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Câu hỏi</p><p className="mt-1 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
