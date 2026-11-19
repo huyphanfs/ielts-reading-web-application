@@ -11,8 +11,8 @@ const beVietnamPro = Be_Vietnam_Pro({
 })
 
 export const metadata: Metadata = {
-  title: 'IELTS Reading | Luyện thi IELTS Academic',
-  description: 'Luyện thi IELTS Academic Reading với giao diện Computer-Delivered, chấm điểm tự động và phân tích chi tiết.',
+  title: 'IELTS Reading | IELTS Academic Practice',
+  description: 'Practice IELTS Academic Reading with a Computer-Delivered interface, automatic scoring, and detailed analytics.',
   applicationName: 'IELTS Reading',
   generator: 'v0.app',
   icons: {
@@ -34,7 +34,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="vi" className="light">
+    <html lang="en" className="light">
       <body className={`${beVietnamPro.className} antialiased`}>
         <AuthProvider>{children}</AuthProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
