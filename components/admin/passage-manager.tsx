@@ -28,7 +28,7 @@ export function PassageManager() {
   const [error, setError] = useState<string | null>(null)
   const [aiModalOpen, setAiModalOpen] = useState(false)
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (preferredId?: string) => {
     setLoading(true)
     const [passageResult, groupResult, questionResult] = await Promise.all([
       supabase.from('passages').select('*').order('passage_part').order('created_at'),
@@ -45,9 +45,18 @@ export function PassageManager() {
     setPassages(nextPassages)
     setGroups((groupResult.data ?? []) as QuestionGroup[])
     setQuestions((questionResult.data ?? []) as Question[])
-    if (!selectedPassageId && nextPassages.length) setSelectedPassageId(nextPassages[0].id)
+
+    if (preferredId !== undefined) {
+      setSelectedPassageId(preferredId)
+    } else {
+      setSelectedPassageId((current) => {
+        if (current === 'new') return current
+        if (current && nextPassages.some((p) => p.id === current)) return current
+        return nextPassages[0]?.id ?? ''
+      })
+    }
     setLoading(false)
-  }, [selectedPassageId])
+  }, [])
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -56,18 +65,19 @@ export function PassageManager() {
   const attachedGroups = useMemo<ExamGroup[]>(() => groups
     .filter((group) => group.passage_id === selectedPassageId)
     .map((group) => ({ ...group, questions: questions.filter((question) => question.group_id === group.id) })), [groups, questions, selectedPassageId])
+
   const effectiveQuestionCount = useMemo(
-  () =>
-    attachedQuestions.reduce((sum, q) => {
-      const group = groups.find((g) => g.id === q.group_id)
-      if (group?.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1) {
-        return sum + q.accepted_answers.length
-      }
-      return sum + 1
-    }, 0),
-  [attachedQuestions, groups],
-)
-const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 14
+    () =>
+      attachedQuestions.reduce((sum, q) => {
+        const group = groups.find((g) => g.id === q.group_id)
+        if (group?.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1) {
+          return sum + q.accepted_answers.length
+        }
+        return sum + 1
+      }, 0),
+    [attachedQuestions, groups],
+  )
+  const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 14
 
   useEffect(() => {
     if (!activePassage) {
@@ -87,7 +97,7 @@ const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 1
 
   const refreshAndSyncCount = async () => {
     await loadData()
-    if (selectedPassageId) {
+    if (selectedPassageId && selectedPassageId !== 'new') {
       const { count } = await supabase.from('questions').select('id', { count: 'exact', head: true }).eq('passage_id', selectedPassageId)
       await supabase.from('passages').update({ question_count: count ?? 0 }).eq('id', selectedPassageId)
       await loadData()
@@ -113,9 +123,8 @@ const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 1
     if (result.error) {
       setError('Không thể lưu bài đọc. Hãy kiểm tra dữ liệu và quyền quản trị.')
     } else {
-      setSelectedPassageId(result.data.id)
       setNotice(activePassage ? 'Đã cập nhật bài đọc.' : 'Đã tạo bài đọc mới.')
-      await loadData()
+      await loadData(result.data.id)
     }
     setSaving(false)
   }
@@ -148,44 +157,120 @@ const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 1
   }
 
   const deletePassage = async () => {
-    if (!activePassage || !window.confirm(`Xóa “${activePassage.title}” cùng toàn bộ nhóm và câu hỏi?`)) return
+    if (!activePassage) return
     setError(null)
-    const { data: usedByTests, error: testCheckError } = await supabase.from('tests').select('id').or(
-      `passage_1_id.eq.${activePassage.id},passage_2_id.eq.${activePassage.id},passage_3_id.eq.${activePassage.id}`,
-    ).limit(1)
+    setNotice(null)
+
+    const { data: usedByTests, error: testCheckError } = await supabase
+      .from('tests')
+      .select('id, title, passage_1_id, passage_2_id, passage_3_id')
+      .or(`passage_1_id.eq.${activePassage.id},passage_2_id.eq.${activePassage.id},passage_3_id.eq.${activePassage.id}`)
+
     if (testCheckError) {
       setError('Không thể kiểm tra đề thi đang sử dụng bài đọc này.')
       return
     }
-    if (usedByTests?.length) {
-      setError('Không thể xóa bài đọc đang được gán cho một đề thi. Hãy gỡ bài đọc khỏi đề trước.')
+
+    const linkedTests = usedByTests ?? []
+    const confirmMessage = linkedTests.length
+      ? `Bài đọc “${activePassage.title}” đang được dùng trong ${linkedTests.length} đề thi (${linkedTests.map((t) => t.title).join(', ')}).\n\nBạn có chắc chắn muốn gỡ bài đọc này khỏi các đề thi trên và XÓA TOÀN BỘ bài đọc cùng tất cả nhóm câu hỏi và câu hỏi liên quan không?`
+      : `Bạn có chắc chắn muốn XÓA TOÀN BỘ bài đọc “${activePassage.title}” cùng tất cả nhóm câu hỏi (${attachedGroups.length} nhóm) và câu hỏi (${attachedQuestions.length} câu)? Hành động này không thể hoàn tác.`
+
+    if (!window.confirm(confirmMessage)) return
+
+    setSaving(true)
+
+    for (const test of linkedTests) {
+      const updates: Record<string, null> = {}
+      if (test.passage_1_id === activePassage.id) updates.passage_1_id = null
+      if (test.passage_2_id === activePassage.id) updates.passage_2_id = null
+      if (test.passage_3_id === activePassage.id) updates.passage_3_id = null
+
+      const { error: unlinkError } = await supabase.from('tests').update(updates).eq('id', test.id)
+      if (unlinkError) {
+        setError(`Không thể gỡ bài đọc khỏi đề "${test.title}".`)
+        setSaving(false)
+        return
+      }
+    }
+
+    const { error: questionError } = await supabase.from('questions').delete().eq('passage_id', activePassage.id)
+    if (questionError) {
+      setError('Không thể xóa danh sách câu hỏi của bài đọc này.')
+      setSaving(false)
       return
     }
 
-    setSaving(true)
-    const { error: questionError } = await supabase.from('questions').delete().eq('passage_id', activePassage.id)
-    const { error: groupError } = questionError ? { error: questionError } : await supabase.from('question_groups').delete().eq('passage_id', activePassage.id)
-    const { error: passageError } = groupError ? { error: groupError } : await supabase.from('passages').delete().eq('id', activePassage.id)
-    if (passageError) setError('Không thể xóa bài đọc.')
-    else {
-      setSelectedPassageId('')
-      setNotice('Đã xóa bài đọc.')
-      await loadData()
+    const { error: groupError } = await supabase.from('question_groups').delete().eq('passage_id', activePassage.id)
+    if (groupError) {
+      setError('Không thể xóa các nhóm câu hỏi của bài đọc này.')
+      setSaving(false)
+      return
     }
+
+    const { error: passageError } = await supabase.from('passages').delete().eq('id', activePassage.id)
+    if (passageError) {
+      setError('Không thể xóa bài đọc. Vui lòng kiểm tra quyền quản trị.')
+      setSaving(false)
+      return
+    }
+
+    const remaining = passages.filter((p) => p.id !== activePassage.id)
+    setNotice(`Đã xóa toàn bộ bài đọc “${activePassage.title}” và các câu hỏi liên quan.`)
+    await loadData(remaining[0]?.id ?? '')
     setSaving(false)
   }
 
   return <div className="space-y-6">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0 flex-1">
-        <label htmlFor="passage-picker" className="text-xs font-semibold text-slate-600">Bài đọc trong thư viện</label>
-        <div className="relative mt-1.5 max-w-[620px]"><select id="passage-picker" value={selectedPassageId} onChange={(event) => { setSelectedPassageId(event.target.value); setNotice(null); setError(null) }} className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-sky-400" disabled={!passages.length}><option value="" disabled>{passages.length ? 'Chọn bài đọc' : 'Chưa có bài đọc'}</option>{passages.map((passage) => <option key={passage.id} value={passage.id}>Passage {passage.passage_part} · {passage.title}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-3.5 size-4 text-slate-400" /></div>
+        <label htmlFor="passage-picker" className="block text-xs font-semibold text-slate-600">Bài đọc trong thư viện</label>
+        <div className="relative mt-1.5 max-w-[540px]">
+          <select
+            id="passage-picker"
+            value={selectedPassageId}
+            onChange={(event) => { setSelectedPassageId(event.target.value); setNotice(null); setError(null) }}
+            className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-sky-400"
+            disabled={!passages.length}
+          >
+            <option value="" disabled>{passages.length ? 'Chọn bài đọc' : 'Chưa có bài đọc'}</option>
+            {passages.map((passage) => <option key={passage.id} value={passage.id}>Passage {passage.passage_part} · {passage.title}</option>)}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-3 top-3.5 size-4 text-slate-400" />
+        </div>
       </div>
-      <Button variant="outline" onClick={createPassage} className="h-10 shrink-0 rounded-lg border-slate-200"><CirclePlus className="mr-2 size-4" /> Tạo bài đọc mới</Button>
-      <Button onClick={() => setAiModalOpen(true)} className="h-10 shrink-0 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"><Sparkles className="mr-2 size-4" /> Soạn bài &amp; câu hỏi bằng AI</Button>
+
+      <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+        {activePassage && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void deletePassage()}
+            disabled={saving}
+            className="h-11 rounded-lg border-rose-200 bg-rose-50/70 px-3.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+          >
+            <Trash2 className="mr-2 size-4" /> Xóa bài đọc &amp; câu hỏi
+          </Button>
+        )}
+        <Button type="button" variant="outline" onClick={createPassage} className="h-11 rounded-lg border-slate-200 px-3.5">
+          <CirclePlus className="mr-2 size-4" /> Tạo bài đọc mới
+        </Button>
+        <Button type="button" onClick={() => setAiModalOpen(true)} className="h-11 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-4 text-white hover:from-sky-700 hover:to-indigo-700">
+          <Sparkles className="mr-2 size-4" /> Soạn bài &amp; câu hỏi bằng AI
+        </Button>
+      </div>
     </div>
 
-    <AIParseTestModal open={aiModalOpen} onClose={() => setAiModalOpen(false)} onSaved={(passageId) => { void loadData().then(() => { if (passageId) setSelectedPassageId(passageId); setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra và lưu lại nếu cần.'); setError(null); }) }} />
+    <AIParseTestModal
+      open={aiModalOpen}
+      onClose={() => setAiModalOpen(false)}
+      onSaved={(passageId) => {
+        void loadData(passageId).then(() => {
+          setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra và lưu lại nếu cần.')
+          setError(null)
+        })
+      }}
+    />
 
     {loading && <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" /> Đang tải thư viện…</div>}
     {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>}
@@ -204,7 +289,7 @@ const countValid = effectiveQuestionCount === 13 || effectiveQuestionCount === 1
       </div>
       <div><label className="mb-2 block text-xs font-semibold text-slate-600">Nội dung bài đọc</label><RichTextEditor label="Nội dung bài đọc" value={content} onChange={setContent} minHeight={300} /></div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-        {activePassage ? <Button type="button" variant="ghost" onClick={() => void deletePassage()} disabled={saving} className="rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="mr-2 size-4" />Xóa bài đọc</Button> : <span className="text-xs text-slate-500">Lưu bài đọc trước khi thêm nhóm câu hỏi.</span>}
+        {activePassage ? <Button type="button" variant="ghost" onClick={() => void deletePassage()} disabled={saving} className="rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="mr-2 size-4" />Xóa toàn bộ bài đọc &amp; câu hỏi</Button> : <span className="text-xs text-slate-500">Lưu bài đọc trước khi thêm nhóm câu hỏi.</span>}
         <Button type="submit" disabled={saving || !title.trim()} className="h-10 rounded-lg bg-sky-600 px-4 text-white hover:bg-sky-700"><Save className="mr-2 size-4" />{saving ? 'Đang lưu' : activePassage ? 'Lưu thay đổi' : 'Tạo bài đọc'}</Button>
       </div>
     </form>}
