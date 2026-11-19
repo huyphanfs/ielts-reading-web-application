@@ -9,6 +9,7 @@ export async function loadExamDefinition(input: {
   title: string
   mode: 'test' | 'practice'
   isTimed: boolean
+  timeLimitSeconds?: number
   testId?: string | null
   retryQuestionIds?: string[]
 }): Promise<ExamDefinition> {
@@ -60,12 +61,15 @@ export async function loadExamDefinition(input: {
     }))
   }).sort((a, b) => a.passage_part - b.passage_part || a.question_number - b.question_number)
 
+  const defaultLimit = input.passages.length === 1 ? 20 * 60 : 60 * 60
+
   return {
     id: crypto.randomUUID(),
     title: input.title,
     mode: input.mode,
     testId: input.testId ?? null,
     isTimed: input.isTimed,
+    timeLimitSeconds: input.timeLimitSeconds ?? defaultLimit,
     passages: input.passages,
     groups,
     questions,
