@@ -44,6 +44,17 @@ function isAnswered(answer: UserAnswer | undefined) {
   return typeof answer === 'string' && answer.trim().length > 0
 }
 
+function countWords(html: string) {
+  const plainText = html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&[a-z0-9#]+;/gi, ' ')
+    .replace(/[\u2013\u2014]/g, ' ')
+    .trim()
+  if (!plainText) return 0
+  return plainText.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length
+}
+
 export function ExamShell({
   exam,
   onExit,
@@ -88,6 +99,7 @@ export function ExamShell({
     [exam.groups, currentPassage.id],
   )
   const currentPassageHtml = sanitizeHtml(currentPassage.content)
+  const passageWordCount = useMemo(() => countWords(currentPassageHtml), [currentPassageHtml])
   const rootForPane = useCallback((pane: TextSelection['pane']) => pane === 'passage' ? passageRef.current : questionRef.current, [])
 
   const updateAnswer = useCallback((questionId: string, answer: UserAnswer) => {
@@ -384,9 +396,19 @@ export function ExamShell({
 
       <div ref={splitterRef} className="exam-workspace relative grid min-h-0 w-full flex-1 overflow-hidden" style={{ gridTemplateColumns: `${split}fr 8px ${100 - split}fr` }}>
         <section className="min-h-0 w-full overflow-y-auto bg-white" aria-label={`Reading Passage ${currentPassage.passage_part}`}>
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-8 py-3 backdrop-blur">
-            <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-600">Passage {currentPassage.passage_part}</p><h1 className="mt-1 text-lg font-bold text-slate-900">{currentPassage.title}</h1></div>
-            <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{currentQuestions.length} {currentQuestions.length === 1 ? 'question' : 'questions'}</span>
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-100 bg-white/95 px-8 py-3 backdrop-blur">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-600">Passage {currentPassage.passage_part}</p>
+              <h1 className="mt-1 text-lg font-bold text-slate-900">{currentPassage.title}</h1>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                {passageWordCount} {passageWordCount === 1 ? 'word' : 'words'}
+              </span>
+              <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                {currentQuestions.length} {currentQuestions.length === 1 ? 'question' : 'questions'}
+              </span>
+            </div>
           </div>
           <div className="w-full px-8 py-6">
             <div
