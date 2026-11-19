@@ -100,7 +100,7 @@ button, input, select, textarea { font: inherit; }
 .rich-content li { margin: 0.35rem 0; }
 
 /* Định dạng đồng nhất 15px và giãn dòng gọn cho khung câu hỏi */
-.question-rich-content { color: #1e293b; font-size: 15px; line-height: 1.65; }
+.question-rich-content { color: #1e293b; font-size: 15px; line-height: 1.7; }
 .question-rich-content h1,
 .question-rich-content h2,
 .question-rich-content h3 {
@@ -108,9 +108,9 @@ button, input, select, textarea { font: inherit; }
   line-height: 1.4;
   font-weight: 700;
   font-size: 16px;
-  margin: 0.75rem 0 0.35rem;
+  margin: 0.75rem 0 0.4rem;
 }
-.question-rich-content p { margin: 0.4rem 0; line-height: 1.65; }
+.question-rich-content p { margin: 0.45rem 0; line-height: 1.7; }
 .question-rich-content p:first-child { margin-top: 0; }
 .question-rich-content p:last-child { margin-bottom: 0; }
 .question-rich-content table { width: 100%; border-collapse: collapse; margin: 0.65rem 0; font-size: 15px; }
@@ -121,8 +121,28 @@ button, input, select, textarea { font: inherit; }
 .question-rich-content blockquote { border-left: 3px solid #7dd3fc; padding-left: 0.75rem; color: #64748b; margin: 0.5rem 0; }
 .question-rich-content mark { border-radius: 0.15rem; padding: 0 0.1rem; }
 .question-rich-content ul,
-.question-rich-content ol { padding-left: 1.35rem; margin: 0.4rem 0; }
-.question-rich-content li { margin: 0.25rem 0; }
+.question-rich-content ol { padding-left: 1.35rem; margin: 0.45rem 0; }
+.question-rich-content li { margin: 0.3rem 0; }
+
+/* Chỗ trống dạng số in đậm + dấu chấm (7....................) trong Summary/Table/Note */
+.inline-blank-marker {
+  display: inline;
+  white-space: nowrap;
+  color: #334155;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  padding: 0 0.1rem;
+  transition: background-color 0.15s;
+}
+.inline-blank-marker:hover {
+  background-color: #e0f2fe;
+}
+.inline-blank-marker strong {
+  font-weight: 700;
+  color: #0f172a;
+  margin-right: 1px;
+}
 
 .exam-input {
   width: 9rem;
