@@ -47,7 +47,9 @@ export function TestManager() {
   useEffect(() => { void loadData() }, [loadData])
 
   const passageMap = useMemo(() => new Map(passages.map((passage) => [passage.id, passage])), [passages])
-  const optionsForPart = (part: number) => passages.filter((passage) => passage.passage_part === part)
+  // Chỉ lấy bài đọc phân loại "Test" (is_test_only === true); bỏ qua bài "Practice"
+  const testOnlyPassages = useMemo(() => passages.filter((passage) => passage.is_test_only === true), [passages])
+  const optionsForPart = (part: number) => testOnlyPassages.filter((passage) => passage.passage_part === part)
   const total = passageIds.reduce((sum, id) => sum + (counts[id] ?? 0), 0)
   const complete = passageIds.every(Boolean)
   const validTotal = complete && total === 40
@@ -56,21 +58,21 @@ export function TestManager() {
 
   const assignRandom = () => {
     setError(null)
-    const part1 = passages.filter((passage) => passage.passage_part === 1 && counts[passage.id] === 13)
-    const part2 = passages.filter((passage) => passage.passage_part === 2 && (counts[passage.id] === 13 || counts[passage.id] === 14))
-    const part3 = passages.filter((passage) => passage.passage_part === 3 && (counts[passage.id] === 13 || counts[passage.id] === 14))
+    const part1 = testOnlyPassages.filter((passage) => passage.passage_part === 1 && counts[passage.id] === 13)
+    const part2 = testOnlyPassages.filter((passage) => passage.passage_part === 2 && (counts[passage.id] === 13 || counts[passage.id] === 14))
+    const part3 = testOnlyPassages.filter((passage) => passage.passage_part === 3 && (counts[passage.id] === 13 || counts[passage.id] === 14))
     const combinations: Array<[Passage, Passage, Passage]> = []
     for (const first of part1) for (const second of part2) for (const third of part3) {
       if (second.id !== third.id && counts[second.id] + counts[third.id] === 27) combinations.push([first, second, third])
     }
     if (!combinations.length) {
-      setError('Chưa có bộ bài đọc đủ 40 câu. Cần Passage 1 có 13 câu và Passage 2–3 có tổng 27 câu.')
+      setError('Chưa có bộ bài đọc phân loại "Test" đủ 40 câu. Cần Passage 1 (Test) có 13 câu và Passage 2–3 (Test) có tổng 27 câu.')
       return
     }
     const chosen = combinations[Math.floor(Math.random() * combinations.length)]
     setPassageIds(chosen.map((passage) => passage.id))
     if (!title.trim()) setTitle(`Test ${tests.length + 1}`)
-    setNotice('Đã gán ngẫu nhiên một bộ đề đủ 40 câu. Hãy lưu để tạo đề thi.')
+    setNotice('Đã gán ngẫu nhiên một bộ đề (phân loại Test) đủ 40 câu. Hãy lưu để tạo đề thi.')
   }
 
   const saveTest = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -121,11 +123,31 @@ export function TestManager() {
     <AIParseTestModal open={aiModalOpen} onClose={() => setAiModalOpen(false)} onSaved={() => { void loadData(); setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra thư viện passage để ghép đề.') }} />
 
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-      <div className="mb-5 flex items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CirclePlus className="size-5" /></span><div><h2 className="font-bold text-slate-900">Tạo đề thi thủ công</h2><p className="mt-1 text-sm text-slate-500">Chọn thủ công từng passage hoặc gán bộ đề ngẫu nhiên đủ 40 câu.</p></div></div>
+      <div className="mb-5 flex items-start gap-3">
+        <span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CirclePlus className="size-5" /></span>
+        <div>
+          <h2 className="font-bold text-slate-900">Tạo đề thi thủ công</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Chỉ hiển thị các bài đọc được gán phân loại <strong>Test</strong> ({testOnlyPassages.length} bài). Các bài <strong>Practice</strong> sẽ không dùng cho đề thi.
+          </p>
+        </div>
+      </div>
       <form onSubmit={(event) => void saveTest(event)} className="space-y-4">
         <label className="block text-xs font-semibold text-slate-600">Tên đề thi<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`Test ${tests.length + 1}`} className="mt-1.5 h-10 w-full max-w-[520px] rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400" /></label>
         <div className="grid gap-3 md:grid-cols-3">
-          {[1, 2, 3].map((part, index) => <label key={part} className="text-xs font-semibold text-slate-600">Passage {part}<select required value={passageIds[index]} onChange={(event) => setPassage(index, event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="">Chọn bài đọc</option>{optionsForPart(part).map((passage) => <option key={passage.id} value={passage.id}>{passage.title} · {counts[passage.id] ?? 0} câu</option>)}</select></label>)}
+          {[1, 2, 3].map((part, index) => (
+            <label key={part} className="text-xs font-semibold text-slate-600">
+              Passage {part} (Test)
+              <select required value={passageIds[index]} onChange={(event) => setPassage(index, event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400">
+                <option value="">Chọn bài đọc Test</option>
+                {optionsForPart(part).map((passage) => (
+                  <option key={passage.id} value={passage.id}>
+                    {passage.title}{passage.topic ? ` [${passage.topic}]` : ''} · {counts[passage.id] ?? 0} câu
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
         </div>
         <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${complete && validTotal ? 'border-emerald-200 bg-emerald-50/80' : 'border-slate-200 bg-slate-50'}`}>
           <div className="flex items-center gap-2 text-sm">{complete && validTotal ? <Check className="size-4 text-emerald-700" /> : <span className="size-2 rounded-full bg-amber-400" />}<span className="font-semibold text-slate-800">{complete ? `${total}/40 câu` : 'Chọn đủ ba bài đọc'}</span><span className="text-xs text-slate-500">{complete && validTotal ? 'Đã đủ cấu hình' : 'Cần đúng 40 câu'}</span></div>
