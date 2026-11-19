@@ -68,7 +68,7 @@ export function SharedContentAnswers({
     return safe.replace(/\[(\d+)\]/g, (placeholder, rawNumber: string) => {
       const question = group.questions.find((item) => item.question_number === Number(rawNumber))
       if (!question) return placeholder
-      return `<span class="inline-question"><span class="inline-question-number" aria-hidden="true">${question.question_number}</span><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
+      return `<span class="inline-question"><span class="inline-question-number" aria-hidden="true">${question.question_number}</span><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" placeholder="${question.question_number}" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
     })
   }, [group.shared_content, group.questions])
 
@@ -98,11 +98,13 @@ function QuestionControl({
   question,
   answer,
   onAnswer,
+  showPrefixBadge = false,
 }: {
   group: ExamGroup
   question: ExamGroup['questions'][number]
   answer: UserAnswer | undefined
   onAnswer: (answer: UserAnswer) => void
+  showPrefixBadge?: boolean
 }) {
   const matching = isMatchingCategory(group.question_category)
   const options = getOptions(question, group)
@@ -110,31 +112,39 @@ function QuestionControl({
 
   if (group.input_type === 'text_box' || matching) {
     return (
-      <input
-        type="text"
-        aria-label={`Question ${question.question_number}`}
-        value={typeof answer === 'string' ? answer : ''}
-        onChange={(event) => onAnswer(event.target.value)}
-        autoComplete="off"
-        className="h-9 w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
-      />
+      <div className="flex w-full items-center gap-2.5">
+        {showPrefixBadge && (
+          <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 px-2 text-xs font-bold text-blue-700">
+            {question.question_number}
+          </span>
+        )}
+        <input
+          type="text"
+          aria-label={`Question ${question.question_number}`}
+          placeholder={String(question.question_number)}
+          value={typeof answer === 'string' ? answer : ''}
+          onChange={(event) => onAnswer(event.target.value)}
+          autoComplete="off"
+          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3.5 text-sm text-slate-900 placeholder:text-center placeholder:font-bold placeholder:text-slate-500 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+        />
+      </div>
     )
   }
 
   if (group.input_type === 'combo_box') {
     const currentValue = typeof answer === 'string' ? answer : ''
     return (
-      <fieldset className="flex w-full flex-col gap-1">
+      <fieldset className="flex w-full flex-col gap-2">
         <legend className="sr-only">Choose one answer for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = currentValue === option.value
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition ${
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0.5 text-sm leading-6 transition ${
                 checked
-                  ? 'bg-sky-50/80 font-medium text-sky-950'
-                  : 'text-slate-700 hover:bg-slate-100/70'
+                  ? 'font-semibold text-blue-800'
+                  : 'text-slate-800 hover:text-slate-950'
               }`}
             >
               <input
@@ -146,8 +156,8 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
-                  checked ? 'border-sky-600 bg-sky-600' : 'border-slate-400 bg-white'
+                className={`mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
+                  checked ? 'border-blue-600 bg-blue-600' : 'border-slate-400 bg-white'
                 }`}
               >
                 {checked && <span className="size-1.5 rounded-full bg-white" />}
@@ -168,16 +178,16 @@ function QuestionControl({
   const atMax = maxSelection ? selectedCount >= maxSelection : false
 
   return (
-    <div className="w-full space-y-2">
+    <div className="w-full space-y-2.5">
       {linkedCount > 1 && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+        <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
           Choose {linkedCount} options (Questions {linkedRange}) · Selected:{' '}
           <span className="tabular-nums">
             {selectedCount}/{linkedCount}
           </span>
         </div>
       )}
-      <fieldset className="flex w-full flex-col gap-1">
+      <fieldset className="flex w-full flex-col gap-2">
         <legend className="sr-only">Choose one or more answers for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = selected.includes(option.value)
@@ -185,13 +195,7 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition ${
-                disabled ? 'cursor-not-allowed opacity-50' : ''
-              } ${
-                checked
-                  ? 'bg-sky-50/80 font-medium text-sky-950'
-                  : 'text-slate-700 hover:bg-slate-100/70'
-              }`}
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0.5 text-sm leading-6 transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
             >
               <input
                 type="checkbox"
@@ -204,9 +208,7 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`flex size-4 shrink-0 items-center justify-center rounded border transition ${
-                  checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-400 bg-white'
-                }`}
+                className={`mt-1 flex size-4 shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
               >
                 {checked && <Check className="size-3" />}
               </span>
@@ -285,23 +287,28 @@ export function QuestionGroupCard({
 
           if (!question.question_text && isTextInput) {
             return (
-              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 py-2 first:pt-1">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-100 px-2 text-xs font-bold text-sky-700">{badgeLabel}</span>
-                  <div className="min-w-0 flex-1">
-                    <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
-                  </div>
-                </div>
+              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2 first:pt-1">
+                <QuestionControl
+                  group={group}
+                  question={question}
+                  answer={answers[question.id]}
+                  onAnswer={(answer) => onAnswer(question.id, answer)}
+                  showPrefixBadge
+                />
               </div>
             )
           }
 
           return (
-            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 py-2.5 first:pt-1">
-              <div className="flex items-start gap-2.5">
-                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-100 px-2 text-xs font-bold text-sky-700">{badgeLabel}</span>
-                <div className="min-w-0 flex-1 space-y-2">
-                  {question.question_text && <div className="rich-content text-sm font-medium leading-relaxed text-slate-800 [&>p]:my-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />}
+            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-3 first:pt-1">
+              <div className="flex items-start gap-3">
+                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 px-2 text-xs font-bold text-blue-700">
+                  {badgeLabel}
+                </span>
+                <div className="min-w-0 flex-1 space-y-2.5">
+                  {question.question_text && (
+                    <div className="rich-content text-sm font-medium text-slate-900 [&>p]:my-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />
+                  )}
                   <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
                 </div>
               </div>
