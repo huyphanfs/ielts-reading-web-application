@@ -21,6 +21,18 @@ const DEFAULT_OPTIONS_BY_CATEGORY: Record<string, string[]> = {
   'Yes/No/Not Given': ['YES', 'NO', 'NOT GIVEN'],
 }
 
+function getDefaultInputTypeForCategory(category: string): ExamGroup['input_type'] {
+  const normalized = category.toLowerCase()
+  if (
+    normalized.includes('true/false') ||
+    normalized.includes('yes/no') ||
+    normalized.includes('multiple choice')
+  ) {
+    return 'combo_box'
+  }
+  return 'text_box'
+}
+
 function getInitialSharedOptions(group: ExamGroup): string {
   if (Array.isArray(group.shared_options) && group.shared_options.length > 0) {
     return group.shared_options.map(String).join('\n')
@@ -47,9 +59,9 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
     const nextDefaults = DEFAULT_OPTIONS_BY_CATEGORY[nextCategory]?.join('\n') ?? ''
 
     setCategory(nextCategory)
+    setInputType(getDefaultInputTypeForCategory(nextCategory))
 
     if (nextDefaults) {
-      setInputType('combo_box')
       if (!sharedOptions.trim() || sharedOptions.trim() === prevDefaults) {
         setSharedOptions(nextDefaults)
       }
@@ -114,7 +126,7 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
     {expanded && <div className="space-y-5 p-4 sm:p-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-xs font-semibold text-slate-600">Phân loại<select value={category} onChange={(event) => handleCategoryChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400">{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
-        <label className="text-xs font-semibold text-slate-600">Kiểu trả lời<select value={inputType} onChange={(event) => setInputType(event.target.value as typeof inputType)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="combo_box">Combo box · một đáp án</option><option value="check_box">Checkbox · nhiều đáp án</option><option value="text_box">Text box · điền từ</option></select></label>
+        <label className="text-xs font-semibold text-slate-600">Kiểu trả lời<select value={inputType} onChange={(event) => setInputType(event.target.value as typeof inputType)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="combo_box">Combo box · chọn 1 đáp án</option><option value="check_box">Checkbox · chọn nhiều đáp án</option><option value="text_box">Text box · nhập đối chiếu / điền từ</option></select></label>
       </div>
       <div><label className="mb-2 block text-xs font-semibold text-slate-600">Hướng dẫn</label><RichTextEditor label={`Hướng dẫn ${group.group_order}`} value={instruction} onChange={setInstruction} minHeight={90} /></div>
       <div><label className="mb-2 block text-xs font-semibold text-slate-600">Nội dung dùng chung <span className="font-normal text-slate-400">— dùng [số câu] để đặt ô nhập</span></label><RichTextEditor label={`Nội dung nhóm ${group.group_order}`} value={sharedContent} onChange={setSharedContent} minHeight={150} /></div>
