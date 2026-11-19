@@ -18,6 +18,34 @@ export const PASSAGE_TOPICS = [
 
 export type PassageTopic = typeof PASSAGE_TOPICS[number]
 
+export const MAX_PASSAGE_TOPICS = 2
+
+export function parsePassageTopics(rawTopic?: string | null): PassageTopic[] {
+  if (!rawTopic) return []
+  const validSet = new Set<string>(PASSAGE_TOPICS)
+  const result: PassageTopic[] = []
+  for (const item of rawTopic.split(',')) {
+    const trimmed = item.trim()
+    if (validSet.has(trimmed) && !result.includes(trimmed as PassageTopic)) {
+      result.push(trimmed as PassageTopic)
+      if (result.length >= MAX_PASSAGE_TOPICS) break
+    }
+  }
+  return result
+}
+
+export function formatPassageTopics(topics: readonly PassageTopic[]): string | null {
+  const validSet = new Set<string>(PASSAGE_TOPICS)
+  const unique: PassageTopic[] = []
+  for (const item of topics) {
+    if (validSet.has(item) && !unique.includes(item)) {
+      unique.push(item)
+      if (unique.length >= MAX_PASSAGE_TOPICS) break
+    }
+  }
+  return unique.length ? unique.join(', ') : null
+}
+
 export type Profile = {
   id: string
   email: string
