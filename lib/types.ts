@@ -58,6 +58,7 @@ export type ExamDefinition = {
   mode: 'test' | 'practice'
   testId: string | null
   isTimed: boolean
+  timeLimitSeconds?: number
   isDemo?: boolean
   passages: Passage[]
   groups: ExamGroup[]
