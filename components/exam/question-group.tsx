@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { Check } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { readStringArray } from '@/lib/grading'
@@ -53,44 +53,29 @@ function getSharedOptionList(group: ExamGroup): string[] {
     .filter(Boolean)
 }
 
-export function SharedContentAnswers({
-  group,
-  answers,
-  onAnswer,
-}: {
-  group: ExamGroup
-  answers: Record<string, UserAnswer>
-  onAnswer: (questionId: string, answer: UserAnswer) => void
-}) {
-  const rootRef = useRef<HTMLDivElement>(null)
+export function SharedContentAnswers({ group }: { group: ExamGroup }) {
   const markup = useMemo(() => {
     const safe = sanitizeHtml(group.shared_content)
     return safe.replace(/\[(\d+)\]/g, (placeholder, rawNumber: string) => {
       const question = group.questions.find((item) => item.question_number === Number(rawNumber))
       if (!question) return placeholder
-      return `<span class="inline-question"><span class="inline-question-number" aria-hidden="true">${question.question_number}</span><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" placeholder="${question.question_number}" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
+      return `<span class="inline-blank-marker" data-target-input="input-${question.id}" title="Click to answer question ${question.question_number}"><strong>${question.question_number}</strong>....................</span>`
     })
   }, [group.shared_content, group.questions])
 
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-    const inputs = root.querySelectorAll<HTMLInputElement>('.inline-question-input')
-    const listeners: Array<() => void> = []
-    inputs.forEach((input) => {
-      const questionId = input.dataset.questionId
-      if (!questionId) return
-      const value = answers[questionId]
-      input.value = Array.isArray(value) ? value.join(', ') : (typeof value === 'string' ? value : '')
-      const handleInput = () => onAnswer(questionId, input.value)
-      input.addEventListener('input', handleInput)
-      listeners.push(() => input.removeEventListener('input', handleInput))
-    })
-    return () => listeners.forEach((remove) => remove())
-  }, [answers, markup, onAnswer])
+  const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const marker = (event.target as HTMLElement).closest<HTMLElement>('[data-target-input]')
+    const inputId = marker?.dataset.targetInput
+    if (!inputId) return
+    const input = document.getElementById(inputId) as HTMLInputElement | null
+    if (input) {
+      input.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      input.focus()
+    }
+  }
 
   if (!markup) return null
-  return <div ref={rootRef} className="question-rich-content" dangerouslySetInnerHTML={{ __html: markup }} />
+  return <div onClick={handleClick} className="question-rich-content" dangerouslySetInnerHTML={{ __html: markup }} />
 }
 
 function QuestionControl({
@@ -119,13 +104,16 @@ function QuestionControl({
           </span>
         )}
         <input
+          id={`input-${question.id}`}
           type="text"
           aria-label={`Question ${question.question_number}`}
-          placeholder={String(question.question_number)}
+          placeholder={showPrefixBadge ? undefined : String(question.question_number)}
           value={typeof answer === 'string' ? answer : ''}
           onChange={(event) => onAnswer(event.target.value)}
           autoComplete="off"
-          className="h-9.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 text-[15px] text-slate-900 placeholder:text-center placeholder:font-bold placeholder:text-slate-500 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+          className={`h-9.5 w-full rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
+            showPrefixBadge ? 'max-w-[240px]' : 'placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
+          }`}
         />
       </div>
     )
@@ -247,7 +235,7 @@ export function QuestionGroupCard({
   const matching = isMatchingCategory(group.question_category)
   const isTextInput = group.input_type === 'text_box' || matching
   const hasInlineAnswers = isTextInput && Boolean(group.shared_content?.match(/\[\d+\]/))
-  const sharedOptionList = matching ? getSharedOptionList(group) : []
+  const sharedOptionList = (matching || isTextInput) ? getSharedOptionList(group) : []
   const totalQuestionsCount = group.questions.reduce(
     (sum, q) =>
       sum + (group.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1 ? q.accepted_answers.length : 1),
@@ -265,10 +253,10 @@ export function QuestionGroupCard({
         </div>
         {group.instruction && <div id={`group-${group.id}`} className="question-rich-content mt-2 text-[15px] font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
       </div>
-      <div className="space-y-0.5 p-3.5 sm:p-4">
-        {group.shared_content && <SharedContentAnswers group={group} answers={answers} onAnswer={onAnswer} />}
+      <div className="space-y-1 p-3.5 sm:p-4">
+        {group.shared_content && <SharedContentAnswers group={group} />}
         {sharedOptionList.length > 0 && (
-          <div className="mb-2.5 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+          <div className="my-2.5 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
             <ul className="space-y-1 text-[15px] text-slate-800">
               {sharedOptionList.map((opt) => (
                 <li key={opt} className="leading-snug">
@@ -278,12 +266,27 @@ export function QuestionGroupCard({
             </ul>
           </div>
         )}
-        {group.shared_content && isTextInput && group.questions.some((question) => !group.shared_content?.includes(`[${question.question_number}]`)) && (
+        {group.shared_content && isTextInput && !hasInlineAnswers && group.questions.some((question) => !group.shared_content?.includes(`[${question.question_number}]`)) && (
           <p className="mt-2 text-xs text-slate-500">Enter your matching answer</p>
         )}
-        {group.questions.map((question) => {
-          const inline = hasInlineAnswers && Boolean(group.shared_content?.includes(`[${question.question_number}]`))
-          if (inline) return null
+
+        {hasInlineAnswers && (
+          <div className="mt-3.5 space-y-2.5 border-t border-slate-100 pt-3.5">
+            {group.questions.map((question) => (
+              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24">
+                <QuestionControl
+                  group={group}
+                  question={question}
+                  answer={answers[question.id]}
+                  onAnswer={(answer) => onAnswer(question.id, answer)}
+                  showPrefixBadge
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!hasInlineAnswers && group.questions.map((question) => {
           const spanCount = group.input_type === 'check_box' && Array.isArray(question.accepted_answers) && question.accepted_answers.length > 1 ? question.accepted_answers.length : 1
           const badgeLabel = spanCount > 1 ? `${question.question_number}-${question.question_number + spanCount - 1}` : String(question.question_number)
 
