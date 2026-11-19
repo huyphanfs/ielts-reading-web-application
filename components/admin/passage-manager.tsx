@@ -150,7 +150,7 @@ export function PassageManager() {
       question_category: 'True/False/Not Given',
       input_type: 'combo_box',
       shared_content: null,
-      shared_options: null,
+      shared_options: ['TRUE', 'FALSE', 'NOT GIVEN'],
     })
     if (insertError) setError('Không thể thêm nhóm câu hỏi.')
     else await refreshAndSyncCount()
