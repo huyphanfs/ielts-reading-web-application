@@ -1,8 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bold, Italic, Underline, LoaderCircle, Save, Sparkles, WrapText, X } from 'lucide-react'
-import DOMPurify from 'isomorphic-dompurify'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -33,6 +32,50 @@ type ParsedResult = {
   question_groups: ParsedGroup[]
 }
 
+type AIParseResult = {
+  passageTitle: string
+  durationMinutes: number
+  questionGroups: Array<{
+    groupOrder: number
+    instruction: string
+    questionCategory: string
+    inputType: ParsedGroup['input_type']
+    sharedContent: string | null
+    sharedOptions: string[] | null
+  }>
+  questions: Array<{
+    groupOrder: number
+    questionNumber: number
+    questionText: string | null
+    options: string[] | null
+    correctAnswer: string[]
+    explanation: string
+  }>
+}
+
+function mapAIParseResult(result: AIParseResult): ParsedResult {
+  return {
+    passageTitle: result.passageTitle,
+    duration_minutes: result.durationMinutes || 20,
+    question_groups: result.questionGroups.map((group) => ({
+      instruction: group.instruction,
+      question_category: group.questionCategory,
+      input_type: group.inputType,
+      shared_content: group.sharedContent,
+      shared_options: group.sharedOptions,
+      questions: result.questions
+        .filter((question) => question.groupOrder === group.groupOrder)
+        .map((question) => ({
+          question_number: question.questionNumber,
+          question_text: question.questionText,
+          options: question.options,
+          accepted_answers: question.correctAnswer,
+          explanation: question.explanation,
+        })),
+    })),
+  }
+}
+
 const QUESTION_TYPES = [
   'True/False/Not Given',
   'Yes/No/Not Given',
@@ -46,132 +89,71 @@ const QUESTION_TYPES = [
   'Diagram / Table / Flow-chart Completion',
 ] as const
 
-function sanitizePaste(html: string): string {
-  const clean = DOMPurify.sanitize(html, {
-    USE_PROFILES: { html: true },
-    ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u'],
-    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'span', 'div', 'font', 'table', 'tbody', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'a'],
-    FORBID_ATTR: ['style', 'class', 'id', 'srcdoc', 'color', 'face', 'size', 'bgcolor', 'background'],
-  })
-  return clean
-    .replace(/<div>/gi, '<p>')
-    .replace(/<\/div>/gi, '</p>')
-    .replace(/\s+/g, ' ')
-    .replace(/<p>\s*<\/p>/gi, '')
-    .trim()
+function escapeHtmlText(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 function plainTextToHtml(text: string): string {
   return text
-    .split(/\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => (line.trim() ? `<p>${escapeHtmlText(line.trim())}</p>` : '<p><br></p>'))
     .join('')
 }
 
-function htmlToPlainText(html: string): string {
-  if (typeof window === 'undefined') return html.replace(/<[^>]+>/g, ' ')
-  const container = document.createElement('div')
-  container.innerHTML = html
-    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-  return (container.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim()
-}
+function cleanPastedHtml(rawHtml: string): string {
+  const stripped = rawHtml
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<\/?(?:div|section|article|header|footer|span|font|table|tbody|thead|tr|td|th|h[1-6])[^>]*>/gi, (tag) =>
+      tag.startsWith('</') ? '</p>' : '<p>',
+    )
 
-function splitPassageFromQuestions(html: string): { passageHtml: string; questionText: string } {
-  const plain = htmlToPlainText(html)
-  const markers = [
-    /IELTS READING PASSAGE \d+/i,
-    /You should spend about/i,
-    /Questions\s+\d+\s*[–-]\s*\d+/i,
-    /Question\s+\d+/i,
-  ]
-  let splitIndex = plain.length
-  for (const marker of markers) {
-    const match = plain.match(marker)
-    if (match && match.index !== undefined) {
-      const questionStart = plain.indexOf('\n', match.index)
-      if (questionStart !== -1 && questionStart < splitIndex) {
-        splitIndex = questionStart
-      }
-    }
-  }
-
-  if (splitIndex === plain.length) {
-    const questionNumMatch = plain.match(/\n\s*\d{1,2}\.\s+[A-Z]/)
-    if (questionNumMatch && questionNumMatch.index !== undefined) {
-      splitIndex = questionNumMatch.index
-    }
-  }
-
-  const passagePlain = plain.slice(0, splitIndex).trim()
-  const questionText = plain.slice(splitIndex).trim()
-
-  const passageHtml = (passagePlain.length >= 50 ? passagePlain : plain)
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const escaped = line
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-      const labelMatch = escaped.match(/^([A-Z])\.\s*(.*)/)
-      if (labelMatch) {
-        return `<p><strong>${labelMatch[1]}</strong> ${labelMatch[2]}</p>`
-      }
-      return `<p>${escaped}</p>`
-    })
-    .join('')
-
-  const fullText = questionText.length >= 10 ? questionText : plain
-  return { passageHtml, questionText: fullText }
-}
-
-function formatParagraphsPreservingFormatting(html: string): string {
-  const temp = document.createElement('div')
-  temp.innerHTML = html
-    .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-
-  const text = temp.textContent ?? ''
-  const lines = text
-    .replace(/\r\n/g, '\n')
-    .replace(/([a-z0-9.?!)'"")])\s*([A-Z]\.\s+[A-Z])/g, '$1\n\n$2')
-    .replace(/\s+(IELTS READING PASSAGE \d+|You should spend about|Questions\s+\d+\s*[–-]\s*\d+|Answer Key|Answers?:)/gi, '\n\n$1')
-    .replace(/([.?!])\s+(\d{1,2}\.\s+[A-Z])/g, '$1\n$2')
-    .replace(/\n{3,}/g, '\n\n')
+  return sanitizeHtml(stripped)
+    .replace(/\s+/g, ' ')
+    .replace(/(<p>\s*<\/p>)+/gi, '')
     .trim()
-    .split(/\n+/)
-    .filter((line) => line.trim())
+}
 
-  const frag = document.createDocumentFragment()
-  lines.forEach((line) => {
-    const p = document.createElement('p')
-    const trimmed = line.trim()
-    const labelMatch = trimmed.match(/^([A-Z])\.\s*(.*)/)
-    if (labelMatch) {
-      const strong = document.createElement('strong')
-      strong.textContent = labelMatch[1]
-      p.appendChild(strong)
-      p.appendChild(document.createTextNode(' ' + labelMatch[2]))
-    } else {
-      p.textContent = trimmed
+const questionRangePattern = /questions\s+\d+\s*[-–—]\s*\d+/i
+
+function splitPassageFromQuestions(html: string, text: string) {
+  const normalizedText = text.replace(/\r/g, '')
+  const lines = normalizedText.split('\n')
+  const headingLineIndex = lines.findIndex((line) => questionRangePattern.test(line))
+
+  if (headingLineIndex < 0) {
+    return {
+      passageHtml: cleanPastedHtml(html),
+      passageText: '',
+      questionText: normalizedText.trim(),
     }
-    frag.appendChild(p)
-  })
+  }
 
-  const wrapper = document.createElement('div')
-  wrapper.appendChild(frag)
-  return wrapper.innerHTML
+  const passageLines = lines.slice(0, headingLineIndex)
+  const passageText = passageLines.join('\n').trim()
+  const questionText = lines.slice(headingLineIndex).join('\n').trim()
+
+  return {
+    passageHtml: plainTextToHtml(passageText),
+    passageText,
+    questionText,
+  }
 }
 
 function ToolbarButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      onMouseDown={(e) => { e.preventDefault(); onClick() }}
+      onMouseDown={(e) => {
+        e.preventDefault()
+        onClick()
+      }}
       title={label}
       aria-label={label}
       className="flex size-8 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
@@ -200,11 +182,10 @@ export function AIParseTestModal({
   const [questionTypes, setQuestionTypes] = useState<string[]>([])
   const [autoDetectTypes, setAutoDetectTypes] = useState(true)
   const [questionCount, setQuestionCount] = useState(13)
+  const [autoFormatOnPaste, setAutoFormatOnPaste] = useState(true)
   const editorRef = useRef<HTMLDivElement>(null)
   const progressTimerRef = useRef<number | null>(null)
   const timeoutRef = useRef<number | null>(null)
-
-  if (!open) return null
 
   useEffect(() => {
     if (!parsing) {
@@ -230,33 +211,33 @@ export function AIParseTestModal({
     }
   }, [parsing])
 
-  const syncEditor = useCallback(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    setPassageHtml(editor.innerHTML)
-  }, [])
-
   const exec = (command: string) => {
-    document.execCommand(command, false)
     editorRef.current?.focus()
-    syncEditor()
+    document.execCommand(command, false)
   }
 
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault()
-    const html = e.clipboardData.getData('text/html')
-    const plain = e.clipboardData.getData('text/plain')
-    const cleanHtml = html ? sanitizePaste(html) : plainTextToHtml(plain)
-    document.execCommand('insertHTML', false, cleanHtml)
-    syncEditor()
+    try {
+      const html = e.clipboardData.getData('text/html')
+      const plain = e.clipboardData.getData('text/plain')
+      const useRichHtml = Boolean(html) && html.length <= 120000
+      const cleanHtml = useRichHtml
+        ? cleanPastedHtml(html)
+        : autoFormatOnPaste
+          ? plainTextToHtml(plain)
+          : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
+      if (cleanHtml) document.execCommand('insertHTML', false, cleanHtml)
+    } catch {
+      const plain = e.clipboardData.getData('text/plain')
+      if (plain) document.execCommand('insertText', false, plain)
+    }
   }
 
   const autoFormatParagraphs = () => {
-    const editor = editorRef.current
-    if (!editor) return
-    const formatted = formatParagraphsPreservingFormatting(editor.innerHTML)
-    editor.innerHTML = formatted
-    syncEditor()
+    setAutoFormatOnPaste((enabled) => !enabled)
+    editorRef.current?.focus()
+    document.execCommand('formatBlock', false, 'p')
   }
 
   const toggleType = (type: string) => {
@@ -268,24 +249,26 @@ export function AIParseTestModal({
   const parseTest = async () => {
     setError(null)
     setParsed(null)
-    const fullHtml = editorRef.current?.innerHTML ?? passageHtml
-    if (!fullHtml || fullHtml.trim().length < 50) {
+    const fullHtml = editorRef.current?.innerHTML ?? ''
+    const fullText = editorRef.current?.innerText ?? ''
+    if (fullText.trim().length < 50) {
       setError('Vui lòng dán nội dung bài thi (ít nhất 50 ký tự).')
       return
     }
 
-    const { passageHtml: extractedPassage, questionText } = splitPassageFromQuestions(fullHtml)
+    const { passageHtml: extractedPassage, passageText, questionText } = splitPassageFromQuestions(fullHtml, fullText)
     setPassageHtml(extractedPassage)
 
     setParsing(true)
     const controller = new AbortController()
-    timeoutRef.current = window.setTimeout(() => controller.abort(), 45000)
+    timeoutRef.current = window.setTimeout(() => controller.abort(), 50000)
 
     try {
       const res = await fetch('/api/ai-parse-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          passageText,
           questionText,
           questionTypes: autoDetectTypes ? [] : questionTypes,
           questionCount,
@@ -296,11 +279,11 @@ export function AIParseTestModal({
       if (!res.ok) {
         setError(data.error || 'Không thể phân tích bài thi.')
       } else {
-        setParsed(data.result as ParsedResult)
+        setParsed(mapAIParseResult(data.result as AIParseResult))
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Hết thời gian chờ AI phản hồi (45 giây). Thử lại hoặc rút gọn nội dung.')
+        setError('Hết thời gian chờ AI phản hồi (50 giây). Thử lại hoặc rút gọn nội dung.')
       } else {
         setError('Lỗi kết nối tới server. Kiểm tra mạng và thử lại.')
       }
@@ -379,7 +362,6 @@ export function AIParseTestModal({
 
       setParsed(null)
       setPassageHtml('')
-      if (editorRef.current) editorRef.current.innerHTML = ''
       onSaved(passageId)
       onClose()
     } catch {
@@ -390,20 +372,25 @@ export function AIParseTestModal({
 
   const reset = () => {
     setParsed(null)
+    setPassageHtml('')
     setError(null)
   }
 
+  if (!open) return null
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-parse-title"
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-3">
@@ -499,6 +486,7 @@ export function AIParseTestModal({
                   variant="outline"
                   size="sm"
                   onClick={autoFormatParagraphs}
+                  aria-pressed={autoFormatOnPaste}
                   className="h-8 rounded-lg border-sky-200 bg-sky-50/70 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                 >
                   <WrapText className="mr-1.5 size-3.5" /> Tự động tách đoạn &amp; xuống dòng
@@ -520,7 +508,6 @@ export function AIParseTestModal({
                   role="textbox"
                   aria-label="Trình soạn thảo nội dung AI"
                   aria-multiline="true"
-                  onInput={syncEditor}
                   onPaste={handlePaste}
                   data-placeholder="Dán nội dung bài thi vào đây (Ctrl+V)..."
                   className="rich-content min-h-[260px] max-h-[420px] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400 [&:empty]:before:text-slate-400 [&:empty]:before:content-[attr(data-placeholder)]"
