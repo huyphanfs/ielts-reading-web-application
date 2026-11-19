@@ -112,9 +112,9 @@ function QuestionControl({
 
   if (group.input_type === 'text_box' || matching) {
     return (
-      <div className="flex w-full items-center gap-2">
+      <div className="flex w-full items-center gap-2.5">
         {showPrefixBadge && (
-          <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 px-1.5 text-[11px] font-bold text-blue-700">
+          <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 px-2 text-xs font-bold text-blue-700">
             {question.question_number}
           </span>
         )}
@@ -125,7 +125,7 @@ function QuestionControl({
           value={typeof answer === 'string' ? answer : ''}
           onChange={(event) => onAnswer(event.target.value)}
           autoComplete="off"
-          className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-[13px] text-slate-900 placeholder:text-center placeholder:font-bold placeholder:text-slate-500 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+          className="h-9.5 w-full rounded-lg border border-slate-300 bg-white px-3.5 text-[15px] text-slate-900 placeholder:text-center placeholder:font-bold placeholder:text-slate-500 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
         />
       </div>
     )
@@ -134,14 +134,14 @@ function QuestionControl({
   if (group.input_type === 'combo_box') {
     const currentValue = typeof answer === 'string' ? answer : ''
     return (
-      <fieldset className="flex w-full flex-col gap-1">
+      <fieldset className="flex w-full flex-col gap-1.5">
         <legend className="sr-only">Choose one answer for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = currentValue === option.value
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2 rounded-md py-0 text-[13px] leading-[1.45] transition ${
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[15px] leading-[1.5] transition ${
                 checked
                   ? 'font-semibold text-blue-800'
                   : 'text-slate-800 hover:text-slate-950'
@@ -156,7 +156,7 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[3px] flex size-3.5 shrink-0 items-center justify-center rounded-full border transition ${
+                className={`mt-[3px] flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
                   checked ? 'border-blue-600 bg-blue-600' : 'border-slate-400 bg-white'
                 }`}
               >
@@ -180,14 +180,14 @@ function QuestionControl({
   return (
     <div className="w-full space-y-1.5">
       {linkedCount > 1 && (
-        <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700">
+        <div className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-0.5 text-xs font-semibold text-blue-700">
           Choose {linkedCount} options (Questions {linkedRange}) · Selected:{' '}
           <span className="tabular-nums">
             {selectedCount}/{linkedCount}
           </span>
         </div>
       )}
-      <fieldset className="flex w-full flex-col gap-1">
+      <fieldset className="flex w-full flex-col gap-1.5">
         <legend className="sr-only">Choose one or more answers for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = selected.includes(option.value)
@@ -195,7 +195,7 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2 rounded-md py-0 text-[13px] leading-[1.45] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[15px] leading-[1.5] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
             >
               <input
                 type="checkbox"
@@ -208,9 +208,9 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[3px] flex size-3.5 shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
+                className={`mt-[3px] flex size-4 shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
               >
-                {checked && <Check className="size-2.5" />}
+                {checked && <Check className="size-3" />}
               </span>
               <span>{option.label}</span>
             </label>
@@ -261,13 +261,13 @@ export function QuestionGroupCard({
             {totalQuestionsCount} {totalQuestionsCount === 1 ? 'question' : 'questions'}
           </span>
         </div>
-        {group.instruction && <div id={`group-${group.id}`} className="question-rich-content mt-2 text-[13px] font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
+        {group.instruction && <div id={`group-${group.id}`} className="question-rich-content mt-2 text-[15px] font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
       </div>
       <div className="space-y-0.5 p-3.5 sm:p-4">
         {group.shared_content && <SharedContentAnswers group={group} answers={answers} onAnswer={onAnswer} />}
         {sharedOptionList.length > 0 && (
           <div className="mb-2.5 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-            <ul className="space-y-1 text-[13px] text-slate-800">
+            <ul className="space-y-1 text-[15px] text-slate-800">
               {sharedOptionList.map((opt) => (
                 <li key={opt} className="leading-snug">
                   {opt}
@@ -302,12 +302,12 @@ export function QuestionGroupCard({
           return (
             <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2 first:pt-0.5">
               <div className="flex items-start gap-2.5">
-                <span className="flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 px-1.5 text-[11px] font-bold text-blue-700">
+                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 px-2 text-xs font-bold text-blue-700">
                   {badgeLabel}
                 </span>
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {question.question_text && (
-                    <div className="question-rich-content text-[13px] font-medium text-slate-900 [&>p]:m-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />
+                    <div className="question-rich-content text-[15px] font-medium text-slate-900 [&>p]:m-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />
                   )}
                   <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
                 </div>
