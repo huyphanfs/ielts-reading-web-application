@@ -108,11 +108,7 @@ function splitPassageFromQuestions(html: string): { passageHtml: string; questio
   const passagePlain = plain.slice(0, splitIndex).trim()
   const questionText = plain.slice(splitIndex).trim()
 
-  if (passagePlain.length < 50) {
-    return { passageHtml: html, questionText: '' }
-  }
-
-  const passageHtml = passagePlain
+  const passageHtml = (passagePlain.length >= 50 ? passagePlain : plain)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -129,7 +125,8 @@ function splitPassageFromQuestions(html: string): { passageHtml: string; questio
     })
     .join('')
 
-  return { passageHtml, questionText }
+  const fullText = questionText.length >= 10 ? questionText : plain
+  return { passageHtml, questionText: fullText }
 }
 
 function formatParagraphsPreservingFormatting(html: string): string {
@@ -272,18 +269,13 @@ export function AIParseTestModal({
     setError(null)
     setParsed(null)
     const fullHtml = editorRef.current?.innerHTML ?? passageHtml
-    if (!fullHtml || fullHtml.trim().length < 20) {
-      setError('Vui lòng dán nội dung bài thi (ít nhất 20 ký tự).')
+    if (!fullHtml || fullHtml.trim().length < 50) {
+      setError('Vui lòng dán nội dung bài thi (ít nhất 50 ký tự).')
       return
     }
 
     const { passageHtml: extractedPassage, questionText } = splitPassageFromQuestions(fullHtml)
     setPassageHtml(extractedPassage)
-
-    if (!questionText || questionText.trim().length < 10) {
-      setError('Không tìm thấy phần câu hỏi. Hãy đảm bảo bạn dán cả passage và câu hỏi.')
-      return
-    }
 
     setParsing(true)
     const controller = new AbortController()

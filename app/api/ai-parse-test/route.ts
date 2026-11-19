@@ -8,9 +8,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. You are given the QUESTION SECTION of an IELTS Reading test (the passage has already been separated). Extract ONLY the questions and return a structured JSON object.
+const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. Given the full text of an IELTS Reading test (passage + questions + answer keys/explanations, possibly in Vietnamese or bilingual format), extract ONLY the structured questions and return a JSON object.
 
-DO NOT include the passage text. Only extract questions, answers, and metadata.
+The passage text is included for context only — DO NOT output it. Extract questions, answers, and metadata only.
 
 Return JSON with this exact schema:
 {
@@ -37,7 +37,10 @@ Return JSON with this exact schema:
 }
 
 Critical rules:
-- Do NOT output passage_content. The passage is handled separately.
+- Do NOT output passage_content. The passage is handled separately by the frontend.
+- Support en-dash (–) and hyphen (-) in question ranges: "Questions 1–6", "Questions 1-6", "Questions 7–13".
+- Support Vietnamese/bilingual answer sections like "Đáp án & Giải thích chi tiết" and "Answer Key & Explanations".
+- Group headers may appear once in the question section and again in the answer section — merge them, do not duplicate groups.
 - For "Choose TWO letters" with answers like ["B","D"], create ONE question with both answers in accepted_answers.
 - For Summary/Note/Table Completion, use shared_content with [number] placeholders and input_type "text_box".
 - For Matching Headings/Features/Information, use input_type "combo_box" with shared_options listing all heading/feature options.
@@ -73,11 +76,11 @@ function extractJsonObject(text: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const questionText: string = body?.questionText
+    const rawText: string = body?.questionText ?? body?.rawText
 
-    if (!questionText || typeof questionText !== 'string' || questionText.trim().length < 10) {
+    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 10) {
       return NextResponse.json(
-        { error: 'Không tìm thấy nội dung câu hỏi. Hãy đảm bảo bạn đã dán cả câu hỏi và đáp án.' },
+        { error: 'Vui lòng dán nội dung bài thi (ít nhất 50 ký tự).' },
         { status: 400, headers: corsHeaders },
       )
     }
@@ -98,8 +101,8 @@ export async function POST(request: NextRequest) {
     if (questionCount) extraInstructions.push(`- Generate exactly ${questionCount} questions total across all question groups.`)
 
     const fullPrompt = extraInstructions.length
-      ? `${SYSTEM_PROMPT}\n\nAdditional requirements:\n${extraInstructions.join('\n')}\n\n--- QUESTION TEXT TO PARSE ---\n${questionText}`
-      : `${SYSTEM_PROMPT}\n\n--- QUESTION TEXT TO PARSE ---\n${questionText}`
+      ? `${SYSTEM_PROMPT}\n\nAdditional requirements:\n${extraInstructions.join('\n')}\n\n--- TEXT TO PARSE (passage + questions + answers) ---\n${rawText}`
+      : `${SYSTEM_PROMPT}\n\n--- TEXT TO PARSE (passage + questions + answers) ---\n${rawText}`
 
     const configuredModel = process.env.GEMINI_MODEL?.trim()
     const fastModel = 'gemini-2.5-flash'
