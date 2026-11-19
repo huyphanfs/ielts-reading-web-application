@@ -76,9 +76,12 @@ function extractJsonObject(text: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const rawText: string = body?.questionText ?? body?.rawText
+    const passageText = typeof body?.passageText === 'string' ? body.passageText.trim() : ''
+    const questionText = typeof body?.questionText === 'string' ? body.questionText.trim() : ''
+    const legacyRawText = typeof body?.rawText === 'string' ? body.rawText.trim() : ''
+    const rawText = [passageText, questionText].filter(Boolean).join('\n\n') || legacyRawText
 
-    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 10) {
+    if (!rawText || rawText.trim().length < 10) {
       return NextResponse.json(
         { error: 'Vui lòng dán nội dung bài thi (ít nhất 50 ký tự).' },
         { status: 400, headers: corsHeaders },
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'Chưa cấu hình GEMINI_API_KEY trong .env.local' },
+        { error: 'Chưa cấu hình GEMINI_API_KEY trong biến môi trường.' },
         { status: 500, headers: corsHeaders },
       )
     }
@@ -105,10 +108,10 @@ export async function POST(request: NextRequest) {
       : `${SYSTEM_PROMPT}\n\n--- TEXT TO PARSE (passage + questions + answers) ---\n${rawText}`
 
     const configuredModel = process.env.GEMINI_MODEL?.trim()
-    const fastModel = 'gemini-2.5-flash'
-    const modelsToTry = configuredModel
-      ? [configuredModel, fastModel]
-      : [fastModel]
+    const fallbackModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash']
+    const modelsToTry = Array.from(
+      new Set([configuredModel, ...fallbackModels].filter((m): m is string => Boolean(m))),
+    )
 
     let lastStatus = 502
     let lastErrorText = ''
@@ -116,6 +119,14 @@ export async function POST(request: NextRequest) {
 
     for (const model of modelsToTry) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      }
+      if (model.startsWith('gemini-2.5')) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 }
+      }
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -129,11 +140,7 @@ export async function POST(request: NextRequest) {
               parts: [{ text: fullPrompt }],
             },
           ],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.1,
-            thinkingConfig: { thinkingBudget: 0 },
-          },
+          generationConfig,
         }),
       })
 
