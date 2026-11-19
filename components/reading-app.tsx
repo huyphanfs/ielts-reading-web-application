@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpenCheck, Check, Clock3, FileText, Layers, LoaderCircle, LockKeyhole, RotateCw, Shuffle, Sparkles, Timer, TriangleAlert } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, Check, Clock3, FileText, Layers, LoaderCircle, LockKeyhole, RotateCw, Search, Shuffle, Sparkles, Tag, Timer, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { ExamShell } from '@/components/exam-shell'
@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { loadExamDefinition } from '@/lib/exam-data'
 import { gradeExam } from '@/lib/grading'
 import { buildDemoExamDefinition, DEMO_TEST_CARD, DEMO_TEST_TITLE } from '@/lib/demo-test'
+import { PASSAGE_TOPICS } from '@/lib/types'
 import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
 
 const supabase = createClient()
@@ -48,6 +49,8 @@ export function ReadingApp() {
   const [practiceType, setPracticeType] = useState<'single' | 'full3'>('single')
   const [singlePracticeTimed, setSinglePracticeTimed] = useState(true)
   const [fullPracticeTimed, setFullPracticeTimed] = useState(true)
+  const [practiceTopicFilter, setPracticeTopicFilter] = useState<string>('all')
+  const [practiceSearch, setPracticeSearch] = useState('')
   const [selectedPart1Id, setSelectedPart1Id] = useState('')
   const [selectedPart2Id, setSelectedPart2Id] = useState('')
   const [selectedPart3Id, setSelectedPart3Id] = useState('')
@@ -96,38 +99,56 @@ export function ReadingApp() {
     () => displayPassages.filter((passage) => passage.is_test_only !== true),
     [displayPassages],
   )
-  const testOnlyCount = displayPassages.filter((passage) => passage.is_test_only === true).length
+  const testOnlyPassages = useMemo(
+    () => displayPassages.filter((passage) => passage.is_test_only === true),
+    [displayPassages],
+  )
+  const testOnlyCount = testOnlyPassages.length
+
+  const filteredPracticePassages = useMemo(() => {
+    const q = practiceSearch.trim().toLowerCase()
+    return practicePassages.filter((p) => {
+      if (practiceTopicFilter !== 'all' && (p.topic ?? '') !== practiceTopicFilter) return false
+      if (q && !p.title.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [practicePassages, practiceTopicFilter, practiceSearch])
 
   const part1Options = useMemo(() => {
-    const list = practicePassages.filter((p) => p.passage_part === 1 && p.actualCount > 0)
-    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
-  }, [practicePassages])
+    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
+    const list = source.filter((p) => p.passage_part === 1 && p.actualCount > 0)
+    return list.length ? list : source.filter((p) => p.actualCount > 0)
+  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
 
   const part2Options = useMemo(() => {
-    const list = practicePassages.filter((p) => p.passage_part === 2 && p.actualCount > 0)
-    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
-  }, [practicePassages])
+    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
+    const list = source.filter((p) => p.passage_part === 2 && p.actualCount > 0)
+    return list.length ? list : source.filter((p) => p.actualCount > 0)
+  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
 
   const part3Options = useMemo(() => {
-    const list = practicePassages.filter((p) => p.passage_part === 3 && p.actualCount > 0)
-    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
-  }, [practicePassages])
+    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
+    const list = source.filter((p) => p.passage_part === 3 && p.actualCount > 0)
+    return list.length ? list : source.filter((p) => p.actualCount > 0)
+  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
 
   useEffect(() => {
-    if (!selectedPart1Id && part1Options[0]) setSelectedPart1Id(part1Options[0].id)
+    if (!part1Options.some((p) => p.id === selectedPart1Id)) {
+      setSelectedPart1Id(part1Options[0]?.id ?? '')
+    }
   }, [part1Options, selectedPart1Id])
 
   useEffect(() => {
-    if (!selectedPart2Id && part2Options.length) {
+    if (!part2Options.some((p) => p.id === selectedPart2Id)) {
       const distinct = part2Options.find((p) => p.id !== selectedPart1Id) ?? part2Options[0]
-      setSelectedPart2Id(distinct.id)
+      setSelectedPart2Id(distinct?.id ?? '')
     }
   }, [part2Options, selectedPart1Id, selectedPart2Id])
 
   useEffect(() => {
-    if (!selectedPart3Id && part3Options.length) {
+    if (!part3Options.some((p) => p.id === selectedPart3Id)) {
       const distinct = part3Options.find((p) => p.id !== selectedPart1Id && p.id !== selectedPart2Id) ?? part3Options[0]
-      setSelectedPart3Id(distinct.id)
+      setSelectedPart3Id(distinct?.id ?? '')
     }
   }, [part3Options, selectedPart1Id, selectedPart2Id, selectedPart3Id])
 
@@ -197,10 +218,11 @@ export function ReadingApp() {
     await beginExam({ selectedPassages: selected, title: test.title, mode: 'test', isTimed: testTimed, timeLimitSeconds: 60 * 60, testId: test.id })
   }
 
+  // Random Full Test chỉ lấy từ các bài đọc phân loại "Test" (is_test_only === true)
   const startRandomTest = async () => {
-    const part1 = displayPassages.filter((passage) => passage.passage_part === 1 && passage.actualCount === 13)
-    const part2 = displayPassages.filter((passage) => passage.passage_part === 2 && (passage.actualCount === 13 || passage.actualCount === 14))
-    const part3 = displayPassages.filter((passage) => passage.passage_part === 3 && (passage.actualCount === 13 || passage.actualCount === 14))
+    const part1 = testOnlyPassages.filter((passage) => passage.passage_part === 1 && passage.actualCount === 13)
+    const part2 = testOnlyPassages.filter((passage) => passage.passage_part === 2 && (passage.actualCount === 13 || passage.actualCount === 14))
+    const part3 = testOnlyPassages.filter((passage) => passage.passage_part === 3 && (passage.actualCount === 13 || passage.actualCount === 14))
     const combinations: Array<[Passage, Passage, Passage]> = []
     for (const first of part1) {
       for (const second of part2) {
@@ -210,7 +232,7 @@ export function ReadingApp() {
       }
     }
     if (!combinations.length) {
-      setNotice('No 40-question combination available yet. Requires Passage 1 (13 questions) and Passages 2–3 totaling 27 questions (13 + 14).')
+      setNotice('No 40-question Test combination available yet. Requires Test-classified Passage 1 (13 questions) and Passages 2–3 totaling 27 questions (13 + 14).')
       return
     }
     const combination = combinations[Math.floor(Math.random() * combinations.length)]
@@ -256,7 +278,8 @@ export function ReadingApp() {
   }
 
   const startRandomFull3Practice = async () => {
-    const pool = practicePassages.filter((p) => p.actualCount > 0)
+    const sourcePool = (practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages).filter((p) => p.actualCount > 0)
+    const pool = sourcePool.length >= 3 ? sourcePool : practicePassages.filter((p) => p.actualCount > 0)
     if (pool.length < 3) {
       setNotice('At least 3 practice passages with questions are required for Full 3 Passage practice.')
       return
@@ -284,41 +307,6 @@ export function ReadingApp() {
       isTimed: fullPracticeTimed,
       timeLimitSeconds: 60 * 60,
       testId: null,
-    })
-  }
-
-  const startPresetFull3Practice = async (test: TestRow) => {
-    if (test.isDemo) {
-      const demo = buildDemoExamDefinition(fullPracticeTimed)
-      await beginExam({
-        title: `${DEMO_TEST_TITLE} · Practice`,
-        mode: 'practice',
-        isTimed: fullPracticeTimed,
-        timeLimitSeconds: 60 * 60,
-        definition: { ...demo, mode: 'practice', isTimed: fullPracticeTimed, timeLimitSeconds: 60 * 60 },
-      })
-      return
-    }
-
-    const ids = [test.passage_1_id, test.passage_2_id, test.passage_3_id].filter((id): id is string => Boolean(id))
-    const selected = ids
-      .map((id, idx) => {
-        const found = passages.find((passage) => passage.id === id)
-        return found ? { ...found, passage_part: (idx + 1) as 1 | 2 | 3 } : null
-      })
-      .filter((value): value is Passage => Boolean(value))
-
-    if (selected.length !== 3) {
-      setNotice('This set does not have all three reading passages assigned yet.')
-      return
-    }
-    await beginExam({
-      selectedPassages: selected,
-      title: `${test.title} · Practice`,
-      mode: 'practice',
-      isTimed: fullPracticeTimed,
-      timeLimitSeconds: 60 * 60,
-      testId: test.id,
     })
   }
 
@@ -442,11 +430,11 @@ export function ReadingApp() {
               <div className="space-y-4 p-5">
                 <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
                   <div className="flex items-center justify-between text-sm"><span className="font-medium text-slate-700">Available tests</span><span className="font-semibold text-sky-700">{availableTests.length} {availableTests.length === 1 ? 'test' : 'tests'}</span></div>
-                  <p className="mt-2 text-xs text-slate-500">Choose a full test or start Single Passage / Full 3 Passage practice.</p>
+                  <p className="mt-2 text-xs text-slate-500">Choose a full test or start Single Passage / Full 3 Passage practice by topic.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-slate-100 p-4"><span className="text-2xl font-bold tracking-tight text-slate-900">{displayPassages.length}</span><p className="mt-1 text-xs text-slate-500">Passages in library</p></div>
-                  <div className="rounded-xl border border-slate-100 p-4"><span className="text-2xl font-bold tracking-tight text-slate-900">{testOnlyCount}</span><p className="mt-1 text-xs text-slate-500">Test-only passages</p></div>
+                  <div className="rounded-xl border border-slate-100 p-4"><span className="text-2xl font-bold tracking-tight text-slate-900">{practicePassages.length}</span><p className="mt-1 text-xs text-slate-500">Practice passages</p></div>
+                  <div className="rounded-xl border border-slate-100 p-4"><span className="text-2xl font-bold tracking-tight text-slate-900">{testOnlyCount}</span><p className="mt-1 text-xs text-slate-500">Test passages</p></div>
                 </div>
                 {authLoading ? <div className="h-10 animate-pulse rounded-lg bg-slate-100" /> : user ? (
                   <div className="flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><Check className="size-4 shrink-0" /> Signed in · results will be saved to your profile</div>
@@ -489,7 +477,7 @@ export function ReadingApp() {
           <div className="grid gap-5 lg:grid-cols-2"><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /></div>
         ) : (
           <div className="grid gap-5 lg:grid-cols-2">
-            {/* Cột 1: Full Test · 40 Questions */}
+            {/* Cột 1: Full Test · 40 Questions (Chỉ dùng các bài phân loại Test) */}
             <article className="group relative overflow-hidden rounded-2xl border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-sky-50 blur-2xl transition group-hover:bg-sky-100" />
               <div className="relative">
@@ -522,19 +510,18 @@ export function ReadingApp() {
                         </li>
                       })}
                     </ul>
-                  ) : <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">No preset tests available. Use the random test generator once enough passages are added.</p>}
+                  ) : <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">No preset tests available. Use the random test generator once enough Test passages are added.</p>}
                 </div>
               </div>
             </article>
 
-            {/* Cột 2: Practice (2 dạng: Single Passage & Full 3 Passage) */}
+            {/* Cột 2: Practice (Chỉ dùng các bài phân loại Practice + Lọc theo 15 Chủ đề) */}
             <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex size-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
                   {practiceType === 'single' ? <BookOpenCheck className="size-5" /> : <Layers className="size-5" />}
                 </div>
 
-                {/* Bộ chọn thời gian riêng theo dạng Practice: Single Passage (20' / Untimed) vs Full 3 Passage (60' / Untimed) */}
                 {practiceType === 'single' ? (
                   <div role="radiogroup" aria-label="Single passage timer mode" className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/80 p-1">
                     <button type="button" role="radio" aria-checked={singlePracticeTimed} onClick={() => setSinglePracticeTimed(true)} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${singlePracticeTimed ? 'bg-sky-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}><Timer className="mr-1 inline size-3.5" />20 min</button>
@@ -594,43 +581,82 @@ export function ReadingApp() {
                 </button>
               </div>
 
+              {/* Bộ lọc Chủ đề (15 Topics) & Tìm kiếm bài đọc Practice */}
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={practiceSearch}
+                    onChange={(e) => setPracticeSearch(e.target.value)}
+                    placeholder="Search practice passage..."
+                    aria-label="Search practice passage"
+                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-sky-400"
+                  />
+                </div>
+                <select
+                  value={practiceTopicFilter}
+                  onChange={(e) => setPracticeTopicFilter(e.target.value)}
+                  aria-label="Filter practice passages by topic"
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 outline-none focus:border-sky-400"
+                >
+                  <option value="all">Topic: All Topics</option>
+                  {PASSAGE_TOPICS.map((topicItem) => (
+                    <option key={topicItem} value={topicItem}>
+                      Topic: {topicItem}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {practiceType === 'single' ? (
-                <div className="mt-5 space-y-2">
+                <div className="mt-4 space-y-2">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Select 1 Passage</span>
-                    <span className="text-xs text-slate-400">{practicePassages.length} {practicePassages.length === 1 ? 'passage' : 'passages'}</span>
+                    <span className="text-xs text-slate-400">
+                      {filteredPracticePassages.length} {filteredPracticePassages.length === 1 ? 'passage' : 'passages'}
+                    </span>
                   </div>
-                  {practicePassages.length ? practicePassages.map((passage) => {
-                    const count = counts[passage.id] ?? 0
-                    return (
-                      <button
-                        key={passage.id}
-                        type="button"
-                        disabled={starting || count === 0}
-                        onClick={() => void startSinglePractice(passage)}
-                        className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold text-slate-800">{passage.title}</span>
-                          <span className="mt-0.5 block text-xs text-slate-500">
-                            Passage {passage.passage_part} · {count} {count === 1 ? 'question' : 'questions'} · {singlePracticeTimed ? '20 min' : 'Untimed'}
+                  <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+                    {filteredPracticePassages.length ? filteredPracticePassages.map((passage) => {
+                      const count = counts[passage.id] ?? 0
+                      return (
+                        <button
+                          key={passage.id}
+                          type="button"
+                          disabled={starting || count === 0}
+                          onClick={() => void startSinglePractice(passage)}
+                          className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2">
+                              <span className="truncate text-sm font-semibold text-slate-800">{passage.title}</span>
+                              {passage.topic && (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                                  <Tag className="size-2.5" /> {passage.topic}
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-slate-500">
+                              Passage {passage.passage_part} · {count} {count === 1 ? 'question' : 'questions'} · {singlePracticeTimed ? '20 min' : 'Untimed'}
+                            </span>
                           </span>
-                        </span>
-                        <ArrowRight className="ml-3 size-4 shrink-0 text-slate-400" />
-                      </button>
-                    )
-                  }) : (
-                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
-                      <BookOpenCheck className="mx-auto size-6 text-slate-400" />
-                      <p className="mt-3 text-sm font-semibold text-slate-700">No practice passages yet</p>
-                      <p className="mt-1 text-xs text-slate-500">New reading passages will appear here once added to the library.</p>
-                    </div>
-                  )}
+                          <ArrowRight className="ml-3 size-4 shrink-0 text-slate-400" />
+                        </button>
+                      )
+                    }) : (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                        <BookOpenCheck className="mx-auto size-6 text-slate-400" />
+                        <p className="mt-3 text-sm font-semibold text-slate-700">No matching practice passages</p>
+                        <p className="mt-1 text-xs text-slate-500">Try selecting another topic or clearing your search filter.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
-                <div className="mt-5 space-y-4">
+                <div className="mt-4 space-y-4">
                   <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Select 3 Passages</p>
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Select 3 Practice Passages</p>
 
                     <div className="space-y-2.5">
                       <div>
@@ -643,7 +669,7 @@ export function ReadingApp() {
                         >
                           {part1Options.length ? part1Options.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.title} (P{p.passage_part} · {p.actualCount} questions)
+                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
                             </option>
                           )) : <option value="">No Passage 1 available</option>}
                         </select>
@@ -659,7 +685,7 @@ export function ReadingApp() {
                         >
                           {part2Options.length ? part2Options.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.title} (P{p.passage_part} · {p.actualCount} questions)
+                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
                             </option>
                           )) : <option value="">No Passage 2 available</option>}
                         </select>
@@ -675,7 +701,7 @@ export function ReadingApp() {
                         >
                           {part3Options.length ? part3Options.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.title} (P{p.passage_part} · {p.actualCount} questions)
+                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
                             </option>
                           )) : <option value="">No Passage 3 available</option>}
                         </select>
@@ -703,35 +729,6 @@ export function ReadingApp() {
                       </Button>
                     </div>
                   </div>
-
-                  {availableTests.length > 0 && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Or Practice Preset 3-Passage Set</p>
-                      <div className="space-y-2">
-                        {availableTests.map((test) => {
-                          const valid = Boolean(test.isDemo || (test.passage_1_id && test.passage_2_id && test.passage_3_id))
-                          const questionTotal = test.isDemo ? 40 : [test.passage_1_id, test.passage_2_id, test.passage_3_id].reduce((sum, id) => sum + (id ? counts[id] ?? 0 : 0), 0)
-                          return (
-                            <button
-                              key={test.id}
-                              type="button"
-                              disabled={starting || !valid}
-                              onClick={() => void startPresetFull3Practice(test)}
-                              className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-semibold text-slate-800">{test.title}</span>
-                                <span className="mt-0.5 block text-xs text-slate-500">
-                                  3 passages · {questionTotal} questions · {fullPracticeTimed ? '60 min' : 'Untimed'}
-                                </span>
-                              </span>
-                              <ArrowRight className="ml-3 size-4 shrink-0 text-slate-400" />
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </article>
