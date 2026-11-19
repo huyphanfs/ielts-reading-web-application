@@ -10,6 +10,27 @@ const supabase = createClient()
 
 type Choice = { value: string; label: string }
 
+function getDefaultCategoryOptions(category: string): string[] {
+  const normalized = category.toLowerCase()
+  if (normalized.includes('true/false')) return ['TRUE', 'FALSE', 'NOT GIVEN']
+  if (normalized.includes('yes/no')) return ['YES', 'NO', 'NOT GIVEN']
+  return []
+}
+
+function resolveInitialOptions(group: ExamGroup, question?: Question | null): string[] {
+  const questionOpts = Array.isArray(question?.options)
+    ? question.options.map(String).map((item) => item.trim()).filter(Boolean)
+    : []
+  if (questionOpts.length) return questionOpts
+
+  const sharedOpts = Array.isArray(group.shared_options)
+    ? group.shared_options.map(String).map((item) => item.trim()).filter(Boolean)
+    : []
+  if (sharedOpts.length) return sharedOpts
+
+  return getDefaultCategoryOptions(group.question_category)
+}
+
 function parseQuestionRange(range: string): number[] {
   if (!range.trim()) return []
   const cleaned = range.trim().replace(/\s/g, '')
@@ -33,6 +54,15 @@ function toChoices(values: string[]): Choice[] {
   })
 }
 
+function resolveSingleAnswer(choices: Choice[], accepted: string[]): string {
+  const raw = accepted[0] ?? ''
+  if (!raw) return ''
+  const exact = choices.find((choice) => choice.value === raw)
+  if (exact) return exact.value
+  const caseInsensitive = choices.find((choice) => choice.value.toLowerCase() === raw.trim().toLowerCase())
+  return caseInsensitive ? caseInsensitive.value : raw
+}
+
 export function QuestionEditor({
   group,
   question,
@@ -46,21 +76,34 @@ export function QuestionEditor({
   onSaved: () => void
   onCancel: () => void
 }) {
+  const isDefaultTfOrYn = getDefaultCategoryOptions(group.question_category).length > 0
+
   const [number, setNumber] = useState(String(question?.question_number ?? nextNumber))
   const [questionText, setQuestionText] = useState(question?.question_text ?? '')
-  const [optionsText, setOptionsText] = useState(() => {
-    const values = Array.isArray(question?.options) ? question?.options : Array.isArray(group.shared_options) ? group.shared_options : []
-    return values.map(String).join('\n')
+  const [optionsText, setOptionsText] = useState(() => resolveInitialOptions(group, question).join('\n'))
+  const [singleAnswer, setSingleAnswer] = useState(() => {
+    const accepted = Array.isArray(question?.accepted_answers)
+      ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
+      : []
+    const initialChoices = toChoices(resolveInitialOptions(group, question))
+    return resolveSingleAnswer(initialChoices, accepted)
   })
-  const [singleAnswer, setSingleAnswer] = useState(() => Array.isArray(question?.accepted_answers) ? String(question?.accepted_answers[0] ?? '') : '')
-  const [selectedAnswers, setSelectedAnswers] = useState<string[]>(() => Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : [])
+  const [selectedAnswers, setSelectedAnswers] = useState<string[]>(() =>
+    Array.isArray(question?.accepted_answers)
+      ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
+      : [],
+  )
   const [textAnswers, setTextAnswers] = useState<string[]>(() => {
-    const accepted = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
+    const accepted = Array.isArray(question?.accepted_answers)
+      ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
+      : []
     return [accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? '']
   })
   const [explanation, setExplanation] = useState(question?.explanation ?? '')
   const [questionRange, setQuestionRange] = useState(() => {
-    const accepted = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
+    const accepted = Array.isArray(question?.accepted_answers)
+      ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
+      : []
     const baseNum = question?.question_number ?? nextNumber
     return accepted.length > 1 ? `${baseNum}-${baseNum + accepted.length - 1}` : ''
   })
@@ -69,20 +112,27 @@ export function QuestionEditor({
 
   useEffect(() => {
     const baseNum = question?.question_number ?? nextNumber
+    const resolvedOpts = resolveInitialOptions(group, question)
+    const initialChoices = toChoices(resolvedOpts)
+    const accepted = Array.isArray(question?.accepted_answers)
+      ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
+      : []
+
     setNumber(String(baseNum))
     setQuestionText(question?.question_text ?? '')
-    const values = Array.isArray(question?.options) ? question.options : Array.isArray(group.shared_options) ? group.shared_options : []
-    setOptionsText(values.map(String).join('\n'))
-    const accepted = Array.isArray(question?.accepted_answers) ? question.accepted_answers.filter((item): item is string => typeof item === 'string') : []
-    setSingleAnswer(accepted[0] ?? '')
+    setOptionsText(resolvedOpts.join('\n'))
+    setSingleAnswer(resolveSingleAnswer(initialChoices, accepted))
     setSelectedAnswers(accepted)
     setTextAnswers([accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? ''])
     setExplanation(question?.explanation ?? '')
     setQuestionRange(accepted.length > 1 ? `${baseNum}-${baseNum + accepted.length - 1}` : '')
     setError(null)
-  }, [group.id, nextNumber, question?.id])
+  }, [group.id, group.question_category, nextNumber, question?.id])
 
-  const choices = useMemo(() => toChoices(optionsText.split('\n').map((item) => item.trim()).filter(Boolean)), [optionsText])
+  const choices = useMemo(
+    () => toChoices(optionsText.split('\n').map((item) => item.trim()).filter(Boolean)),
+    [optionsText],
+  )
 
   const handleRangeChange = (val: string) => {
     setQuestionRange(val)
@@ -118,12 +168,16 @@ export function QuestionEditor({
       setError('Số câu phải là số nguyên lớn hơn 0.')
       return
     }
-    const options = optionsText.split('\n').map((item) => item.trim()).filter(Boolean)
-    const accepted = group.input_type === 'text_box'
-      ? textAnswers.map((answer) => answer.trim()).filter(Boolean)
-      : group.input_type === 'combo_box'
-        ? (singleAnswer ? [singleAnswer] : [])
-        : selectedAnswers
+    const parsedOptions = optionsText.split('\n').map((item) => item.trim()).filter(Boolean)
+    const options = parsedOptions.length ? parsedOptions : getDefaultCategoryOptions(group.question_category)
+    const accepted =
+      group.input_type === 'text_box'
+        ? textAnswers.map((answer) => answer.trim()).filter(Boolean)
+        : group.input_type === 'combo_box'
+          ? singleAnswer
+            ? [singleAnswer]
+            : []
+          : selectedAnswers
 
     if (!accepted.length) {
       setError('Hãy chọn hoặc nhập ít nhất một đáp án đúng.')
@@ -184,8 +238,17 @@ export function QuestionEditor({
       ) : (
         <div className="mt-4 space-y-3">
           <label className="block text-xs font-semibold text-slate-600">
-            Các lựa chọn <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng)</span>
-            <textarea value={optionsText} onChange={(event) => setOptionsText(event.target.value)} rows={4} placeholder={'A. Option one\nB. Option two\nC. Option three'} className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
+            Các lựa chọn{' '}
+            <span className="font-normal text-slate-400">
+              {isDefaultTfOrYn ? '(tự động mặc định theo nhóm câu hỏi)' : '(mỗi lựa chọn một dòng)'}
+            </span>
+            <textarea
+              value={optionsText}
+              onChange={(event) => setOptionsText(event.target.value)}
+              rows={isDefaultTfOrYn ? 3 : 4}
+              placeholder={'A. Option one\nB. Option two\nC. Option three'}
+              className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400"
+            />
           </label>
           {group.input_type === 'combo_box' ? (
             <label className="block text-xs font-semibold text-slate-600">
