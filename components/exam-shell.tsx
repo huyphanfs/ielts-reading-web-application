@@ -54,6 +54,7 @@ export function ExamShell({
   onSubmit: (answers: Record<string, UserAnswer>, elapsed: number, notes: StudyNote[]) => Promise<void>
 }) {
   const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [passageIndex, setPassageIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, UserAnswer>>({})
   const [secondsLeft, setSecondsLeft] = useState(3600)
@@ -118,7 +119,7 @@ export function ExamShell({
   }, [exam.isTimed, secondsLeft, submit])
 
   useEffect(() => {
-    if (!exam.isTimed) return
+    if (!exam.isTimed || isAdmin) return
     const pauseWhenAway = () => {
       if (document.visibilityState === 'hidden' && !pauseRef.current && !submittedRef.current) setPauseReason('auto')
     }
@@ -131,7 +132,7 @@ export function ExamShell({
       document.removeEventListener('visibilitychange', pauseWhenAway)
       window.removeEventListener('blur', pauseOnBlur)
     }
-  }, [exam.isTimed])
+  }, [exam.isTimed, isAdmin])
 
   useEffect(() => {
     if (passageIndex >= exam.passages.length) setPassageIndex(0)
@@ -336,10 +337,6 @@ export function ExamShell({
     void submit()
   }
 
-  const resumeText = pauseReason === 'auto'
-    ? 'Thời gian đã tự động tạm dừng do bạn chuyển sang tab hoặc ứng dụng khác. Nhấn tiếp tục để làm bài.'
-    : 'Bài thi đang tạm dừng. Nhấn tiếp tục khi bạn sẵn sàng.'
-
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
       <AppHeader compact />
@@ -349,11 +346,37 @@ export function ExamShell({
           <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{exam.title}</p><p className="text-xs text-slate-500">{exam.mode === 'test' ? 'IELTS Academic Reading' : 'Luyện tập'} · {exam.questions.length} câu</p></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-2 font-mono text-sm font-bold tabular-nums ${exam.isTimed && secondsLeft < 300 ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`} aria-live="polite">
+          <div
+            className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-2 font-mono text-sm font-bold tabular-nums ${
+              isPaused
+                ? 'border-amber-300 bg-amber-50 text-amber-800'
+                : exam.isTimed && secondsLeft < 300
+                  ? 'border-orange-200 bg-orange-50 text-orange-700'
+                  : 'border-slate-200 bg-slate-50 text-slate-800'
+            }`}
+            aria-live="polite"
+            title={isPaused ? 'Đồng hồ đang tạm dừng' : undefined}
+          >
             <Clock3 className="size-4" /> {exam.isTimed ? clock(secondsLeft) : clock(elapsed)}
           </div>
           <Button variant="outline" size="sm" onClick={startNewNote} aria-label="Mở ghi chú học tập" className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3"><StickyNote className="size-4 sm:mr-2" /><span className="hidden sm:inline">Ghi chú</span><span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px]">{notes.length}</span></Button>
-          {profile?.role === 'admin' && <Button variant="outline" size="sm" onClick={() => setPauseReason(isPaused ? null : 'manual')} className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3">{isPaused ? <Play className="size-4 sm:mr-2" /> : <Pause className="size-4 sm:mr-2" />}<span className="hidden sm:inline">{isPaused ? 'Tiếp tục' : 'Tạm dừng'}</span></Button>}
+          {isAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPauseReason(isPaused ? null : 'manual')}
+              aria-label={isPaused ? 'Tiếp tục đếm thời gian' : 'Dừng đếm thời gian'}
+              className={`h-9 rounded-lg px-2.5 sm:px-3 ${
+                isPaused
+                  ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {isPaused ? <Play className="size-4 sm:mr-2" /> : <Pause className="size-4 sm:mr-2" />}
+              <span className="hidden sm:inline">{isPaused ? 'Tiếp tục' : 'Dừng thời gian'}</span>
+            </Button>
+          )}
           <Button size="sm" onClick={handleSubmitClick} disabled={submitting} className="h-9 rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-700 sm:px-4"><Send className="size-4 sm:mr-2" /><span className="hidden sm:inline">{submitting ? 'Đang nộp' : 'Nộp bài'}</span></Button>
         </div>
       </div>
@@ -450,11 +473,11 @@ export function ExamShell({
         onNote={beginNote}
       />}
 
-      {isPaused && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
+      {pauseReason === 'auto' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
         <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-md rounded-2xl border border-white/70 bg-white/95 p-7 text-center shadow-2xl">
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-sky-50 text-sky-700"><Pause className="size-6" /></div>
           <h2 id="pause-title" className="mt-4 text-xl font-bold text-slate-900">Bài thi đang tạm dừng</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{resumeText}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Thời gian đã tự động tạm dừng do bạn chuyển sang tab hoặc ứng dụng khác. Nhấn tiếp tục để làm bài.</p>
           <Button onClick={() => setPauseReason(null)} className="mt-6 h-11 w-full rounded-lg bg-sky-600 text-white hover:bg-sky-700"><Play className="mr-2 size-4" /> Tiếp tục làm bài</Button>
         </div>
       </div>}
