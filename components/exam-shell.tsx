@@ -340,14 +340,14 @@ export function ExamShell({
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
       <AppHeader compact />
-      <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-6">
+      <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-lg text-slate-600" onClick={onExit} aria-label="Thoát bài thi"><ArrowLeft className="size-4" /></Button>
-          <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{exam.title}</p><p className="text-xs text-slate-500">{exam.mode === 'test' ? 'IELTS Academic Reading' : 'Luyện tập'} · {exam.questions.length} câu</p></div>
+          <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{exam.title}</p><p className="text-xs text-slate-500">{exam.mode === 'test' ? 'IELTS Academic Reading' : 'Luyện tập'} · {exam.questions.length} {exam.questions.length === 1 ? 'question' : 'questions'}</p></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <div
-            className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-2 font-mono text-sm font-bold tabular-nums ${
+            className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm font-bold tabular-nums ${
               isPaused
                 ? 'border-amber-300 bg-amber-50 text-amber-800'
                 : exam.isTimed && secondsLeft < 300
@@ -385,7 +385,7 @@ export function ExamShell({
         <section className="min-h-0 w-full overflow-y-auto bg-white" aria-label={`Bài đọc Passage ${currentPassage.passage_part}`}>
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-8 py-3 backdrop-blur">
             <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-600">Passage {currentPassage.passage_part}</p><h1 className="mt-1 text-lg font-bold text-slate-900">{currentPassage.title}</h1></div>
-            <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{currentQuestions.length} câu</span>
+            <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{currentQuestions.length} {currentQuestions.length === 1 ? 'question' : 'questions'}</span>
           </div>
           <div className="w-full px-8 py-6">
             <div
@@ -421,12 +421,12 @@ export function ExamShell({
         </div>
 
         <section ref={questionPaneRef} className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
-          <div className="w-full px-8 py-6">
-            <div className="mb-4 flex items-center justify-between px-1">
-              <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Câu hỏi</p><p className="mt-1 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
-              <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} đã trả lời</span>
+          <div className="w-full px-2 py-3 sm:px-3">
+            <div className="mb-3 flex items-center justify-between px-1">
+              <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Câu hỏi</p><p className="mt-0.5 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
+              <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} answered</span>
             </div>
-            <div ref={questionRef} className="space-y-4" onMouseUp={() => selectText('questions')} onKeyUp={() => selectText('questions')}>
+            <div ref={questionRef} className="w-full space-y-3" onMouseUp={() => selectText('questions')} onKeyUp={() => selectText('questions')}>
               {currentGroups.length ? currentGroups.map((group) => (
                 <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />
               )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">Chưa có câu hỏi cho passage này.</div>}
@@ -435,19 +435,19 @@ export function ExamShell({
         </section>
       </div>
 
-      <footer className="z-20 shrink-0 border-t border-slate-200 bg-white px-3 py-2.5 sm:px-5">
-        <div className="flex items-center gap-4 overflow-x-auto">
-          <div className="flex shrink-0 items-center gap-1.5" role="tablist" aria-label="Chọn bài đọc">
+      <footer className="z-20 shrink-0 border-t border-slate-200 bg-white px-3 py-1.5 sm:px-4">
+        <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-1" role="tablist" aria-label="Chọn bài đọc">
             {exam.passages.map((passage, index) => {
               const passageQuestions = exam.questions.filter((question) => question.passage_id === passage.id)
               const answered = passageQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length
-              return <button key={passage.id} type="button" role="tab" aria-selected={index === passageIndex} onClick={() => setPassageIndex(index)} className={`rounded-lg px-3 py-2 text-[11px] font-bold tracking-wide transition sm:text-xs ${index === passageIndex ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-                P{passage.passage_part}<span className={`ml-1.5 font-medium ${index === passageIndex ? 'text-sky-100' : 'text-slate-400'}`}>{answered}/{passageQuestions.length}</span>
+              return <button key={passage.id} type="button" role="tab" aria-selected={index === passageIndex} onClick={() => setPassageIndex(index)} className={`h-7 rounded-md px-2.5 text-[11px] font-bold tracking-wide transition ${index === passageIndex ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                P{passage.passage_part}<span className={`ml-1 font-medium ${index === passageIndex ? 'text-sky-100' : 'text-slate-400'}`}>{answered}/{passageQuestions.length}</span>
               </button>
             })}
           </div>
-          <div className="h-7 w-px shrink-0 bg-slate-200" aria-hidden="true" />
-          <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto py-0.5" aria-label="Điều hướng câu hỏi">
+          <div className="h-5 w-px shrink-0 bg-slate-200" aria-hidden="true" />
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="Điều hướng câu hỏi">
             {exam.questions.map((question, index) => {
               const answered = isAnswered(answers[getAnswerKey(question.id)])
               return <button
@@ -456,12 +456,12 @@ export function ExamShell({
                 onClick={() => scrollToQuestion(getAnswerKey(question.id), question.passage_part)}
                 aria-label={`Đi đến câu ${question.question_number}`}
                 aria-current={currentQuestions.some((item) => item.id === question.id) ? 'location' : undefined}
-                className={`flex size-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition ${answered ? 'border-sky-600 bg-sky-600 text-white hover:bg-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-700'}`}
+                className={`flex size-6.5 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition ${answered ? 'border-sky-600 bg-sky-600 text-white hover:bg-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-700'}`}
               >{question.question_number || index + 1}</button>
             })}
           </div>
+          <span className="hidden shrink-0 text-[11px] font-medium text-slate-500 sm:inline">{answeredCount}/{exam.questions.length} questions</span>
         </div>
-        <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400 sm:text-[11px]"><span>{answeredCount} / {exam.questions.length} câu đã trả lời</span><span className="hidden sm:inline">Bôi đen văn bản ở bài đọc hoặc câu hỏi để tô sáng và ghi chú</span></div>
       </footer>
 
       {selection && <AnnotationToolbar
