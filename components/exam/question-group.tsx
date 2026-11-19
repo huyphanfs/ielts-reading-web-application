@@ -141,7 +141,8 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[15px] leading-[1.5] transition ${
+              style={{ fontSize: '17px' }}
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[17px] leading-[1.45] transition ${
                 checked
                   ? 'font-semibold text-blue-800'
                   : 'text-slate-800 hover:text-slate-950'
@@ -156,11 +157,11 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[3px] flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
+                className={`mt-[4px] flex size-[18px] shrink-0 items-center justify-center rounded-full border transition ${
                   checked ? 'border-blue-600 bg-blue-600' : 'border-slate-400 bg-white'
                 }`}
               >
-                {checked && <span className="size-1.5 rounded-full bg-white" />}
+                {checked && <span className="size-2 rounded-full bg-white" />}
               </span>
               <span>{option.label}</span>
             </label>
@@ -195,7 +196,8 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[15px] leading-[1.5] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
+              style={{ fontSize: '17px' }}
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[17px] leading-[1.45] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
             >
               <input
                 type="checkbox"
@@ -208,9 +210,9 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[3px] flex size-4 shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
+                className={`mt-[4px] flex size-[18px] shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
               >
-                {checked && <Check className="size-3" />}
+                {checked && <Check className="size-3.5" />}
               </span>
               <span>{option.label}</span>
             </label>
