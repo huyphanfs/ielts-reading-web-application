@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PASSAGE_TOPICS, parsePassageTopics } from '@/lib/types'
 
 export const maxDuration = 60
 
@@ -13,6 +14,7 @@ const QUESTIONS_SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. Gi
 Return JSON with this exact schema:
 {
   "passageTitle": "string - title if found in header, otherwise empty string",
+  "suggested_topics": ["up to 2 topics strictly from: ${PASSAGE_TOPICS.join(', ')}"],
   "duration_minutes": number (default 20),
   "question_groups": [
     {
@@ -36,6 +38,7 @@ Return JSON with this exact schema:
 
 Critical rules:
 - Extract ONLY questions and group structures. Leave accepted_answers as [] and explanation as null unless explicitly embedded right inside the question prompt.
+- For suggested_topics, infer 1 or at most 2 relevant topics strictly from the allowed list based on the passage title and question content.
 - Preserve any <img ...> tags that belong to a group's instruction, shared_content (such as diagrams/flow-charts/maps), or an individual question_text.
 - Support en-dash (–) and hyphen (-) in question ranges: "Questions 1–6", "Questions 1-6".
 - For "Choose TWO letters" covering e.g. Questions 11–12, create ONE question with question_number: 11 and input_type: "check_box".
@@ -260,7 +263,10 @@ ${answerContent}`
     }
 
     try {
-      const parsed = JSON.parse(extractJsonObject(aiRes.text))
+      const parsed = JSON.parse(extractJsonObject(aiRes.text)) as Record<string, unknown>
+      if (Array.isArray(parsed.suggested_topics)) {
+        parsed.suggested_topics = parsePassageTopics(parsed.suggested_topics.map(String).join(', '))
+      }
       return NextResponse.json({ result: parsed }, { headers: corsHeaders })
     } catch {
       return NextResponse.json(
