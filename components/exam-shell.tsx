@@ -333,7 +333,8 @@ export function ExamShell({
   }
 
   const handleSubmitClick = () => {
-    if (hasUnanswered && !window.confirm(`Bạn còn ${exam.questions.length - answeredCount} câu chưa trả lời. Vẫn nộp bài?`)) return
+    const remaining = exam.questions.length - answeredCount
+    if (hasUnanswered && !window.confirm(`You have ${remaining} unanswered ${remaining === 1 ? 'question' : 'questions'}. Submit anyway?`)) return
     void submit()
   }
 
@@ -342,8 +343,8 @@ export function ExamShell({
       <AppHeader compact />
       <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-lg text-slate-600" onClick={onExit} aria-label="Thoát bài thi"><ArrowLeft className="size-4" /></Button>
-          <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{exam.title}</p><p className="text-xs text-slate-500">{exam.mode === 'test' ? 'IELTS Academic Reading' : 'Luyện tập'} · {exam.questions.length} {exam.questions.length === 1 ? 'question' : 'questions'}</p></div>
+          <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-lg text-slate-600" onClick={onExit} aria-label="Exit test"><ArrowLeft className="size-4" /></Button>
+          <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{exam.title}</p><p className="text-xs text-slate-500">{exam.mode === 'test' ? 'IELTS Academic Reading' : 'Practice'} · {exam.questions.length} {exam.questions.length === 1 ? 'question' : 'questions'}</p></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
           <div
@@ -355,18 +356,18 @@ export function ExamShell({
                   : 'border-slate-200 bg-slate-50 text-slate-800'
             }`}
             aria-live="polite"
-            title={isPaused ? 'Đồng hồ đang tạm dừng' : undefined}
+            title={isPaused ? 'Timer paused' : undefined}
           >
             <Clock3 className="size-4" /> {exam.isTimed ? clock(secondsLeft) : clock(elapsed)}
           </div>
-          <Button variant="outline" size="sm" onClick={startNewNote} aria-label="Mở ghi chú học tập" className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3"><StickyNote className="size-4 sm:mr-2" /><span className="hidden sm:inline">Ghi chú</span><span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px]">{notes.length}</span></Button>
+          <Button variant="outline" size="sm" onClick={startNewNote} aria-label="Open study notes" className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3"><StickyNote className="size-4 sm:mr-2" /><span className="hidden sm:inline">Notes</span><span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px]">{notes.length}</span></Button>
           {isAdmin && (
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => setPauseReason(isPaused ? null : 'manual')}
-              aria-label={isPaused ? 'Tiếp tục đếm thời gian' : 'Dừng đếm thời gian'}
+              aria-label={isPaused ? 'Resume timer' : 'Pause timer'}
               className={`h-9 rounded-lg px-2.5 sm:px-3 ${
                 isPaused
                   ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
@@ -374,15 +375,15 @@ export function ExamShell({
               }`}
             >
               {isPaused ? <Play className="size-4 sm:mr-2" /> : <Pause className="size-4 sm:mr-2" />}
-              <span className="hidden sm:inline">{isPaused ? 'Tiếp tục' : 'Dừng thời gian'}</span>
+              <span className="hidden sm:inline">{isPaused ? 'Resume' : 'Pause timer'}</span>
             </Button>
           )}
-          <Button size="sm" onClick={handleSubmitClick} disabled={submitting} className="h-9 rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-700 sm:px-4"><Send className="size-4 sm:mr-2" /><span className="hidden sm:inline">{submitting ? 'Đang nộp' : 'Nộp bài'}</span></Button>
+          <Button size="sm" onClick={handleSubmitClick} disabled={submitting} className="h-9 rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-700 sm:px-4"><Send className="size-4 sm:mr-2" /><span className="hidden sm:inline">{submitting ? 'Submitting' : 'Submit'}</span></Button>
         </div>
       </div>
 
       <div ref={splitterRef} className="exam-workspace relative grid min-h-0 w-full flex-1 overflow-hidden" style={{ gridTemplateColumns: `${split}fr 8px ${100 - split}fr` }}>
-        <section className="min-h-0 w-full overflow-y-auto bg-white" aria-label={`Bài đọc Passage ${currentPassage.passage_part}`}>
+        <section className="min-h-0 w-full overflow-y-auto bg-white" aria-label={`Reading Passage ${currentPassage.passage_part}`}>
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-8 py-3 backdrop-blur">
             <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-600">Passage {currentPassage.passage_part}</p><h1 className="mt-1 text-lg font-bold text-slate-900">{currentPassage.title}</h1></div>
             <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{currentQuestions.length} {currentQuestions.length === 1 ? 'question' : 'questions'}</span>
@@ -395,14 +396,14 @@ export function ExamShell({
               onKeyUp={() => selectText('passage')}
               dangerouslySetInnerHTML={{ __html: currentPassageHtml }}
             />
-            {!currentPassage.content && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Bài đọc đang được cập nhật.</p>}
+            {!currentPassage.content && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Reading passage content is being updated.</p>}
           </div>
         </section>
 
         <div
           className="exam-divider group relative z-10 flex cursor-col-resize items-center justify-center bg-slate-100 outline-none transition hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500"
           role="separator"
-          aria-label="Điều chỉnh độ rộng bài đọc và câu hỏi"
+          aria-label="Resize passage and questions panels"
           aria-orientation="vertical"
           aria-valuemin={40}
           aria-valuemax={75}
@@ -420,16 +421,16 @@ export function ExamShell({
           <span className="h-10 w-1 rounded-full bg-slate-300 transition group-hover:bg-sky-400" />
         </div>
 
-        <section ref={questionPaneRef} className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Câu hỏi">
+        <section ref={questionPaneRef} className="min-h-0 w-full overflow-y-auto bg-slate-50" aria-label="Questions">
           <div className="w-full px-2 py-3 sm:px-3">
             <div className="mb-3 flex items-center justify-between px-1">
-              <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Câu hỏi</p><p className="mt-0.5 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
+              <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Questions</p><p className="mt-0.5 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
               <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} answered</span>
             </div>
             <div ref={questionRef} className="w-full space-y-3" onMouseUp={() => selectText('questions')} onKeyUp={() => selectText('questions')}>
               {currentGroups.length ? currentGroups.map((group) => (
                 <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />
-              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">Chưa có câu hỏi cho passage này.</div>}
+              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No questions available for this passage yet.</div>}
             </div>
           </div>
         </section>
@@ -437,7 +438,7 @@ export function ExamShell({
 
       <footer className="z-20 shrink-0 border-t border-slate-200 bg-white px-3 py-1.5 sm:px-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex shrink-0 items-center gap-1" role="tablist" aria-label="Chọn bài đọc">
+          <div className="flex shrink-0 items-center gap-1" role="tablist" aria-label="Select reading passage">
             {exam.passages.map((passage, index) => {
               const passageQuestions = exam.questions.filter((question) => question.passage_id === passage.id)
               const answered = passageQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length
@@ -447,14 +448,14 @@ export function ExamShell({
             })}
           </div>
           <div className="h-5 w-px shrink-0 bg-slate-200" aria-hidden="true" />
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="Điều hướng câu hỏi">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label="Question navigation">
             {exam.questions.map((question, index) => {
               const answered = isAnswered(answers[getAnswerKey(question.id)])
               return <button
                 key={question.id}
                 type="button"
                 onClick={() => scrollToQuestion(getAnswerKey(question.id), question.passage_part)}
-                aria-label={`Đi đến câu ${question.question_number}`}
+                aria-label={`Go to question ${question.question_number}`}
                 aria-current={currentQuestions.some((item) => item.id === question.id) ? 'location' : undefined}
                 className={`flex size-6.5 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition ${answered ? 'border-sky-600 bg-sky-600 text-white hover:bg-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-700'}`}
               >{question.question_number || index + 1}</button>
@@ -476,9 +477,9 @@ export function ExamShell({
       {pauseReason === 'auto' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
         <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-md rounded-2xl border border-white/70 bg-white/95 p-7 text-center shadow-2xl">
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-sky-50 text-sky-700"><Pause className="size-6" /></div>
-          <h2 id="pause-title" className="mt-4 text-xl font-bold text-slate-900">Bài thi đang tạm dừng</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Thời gian đã tự động tạm dừng do bạn chuyển sang tab hoặc ứng dụng khác. Nhấn tiếp tục để làm bài.</p>
-          <Button onClick={() => setPauseReason(null)} className="mt-6 h-11 w-full rounded-lg bg-sky-600 text-white hover:bg-sky-700"><Play className="mr-2 size-4" /> Tiếp tục làm bài</Button>
+          <h2 id="pause-title" className="mt-4 text-xl font-bold text-slate-900">Test Paused</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">The timer was automatically paused because you switched to another tab or application. Click resume to continue.</p>
+          <Button onClick={() => setPauseReason(null)} className="mt-6 h-11 w-full rounded-lg bg-sky-600 text-white hover:bg-sky-700"><Play className="mr-2 size-4" /> Resume Test</Button>
         </div>
       </div>}
 
