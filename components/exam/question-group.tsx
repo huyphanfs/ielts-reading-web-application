@@ -111,8 +111,12 @@ function QuestionControl({
           value={typeof answer === 'string' ? answer : ''}
           onChange={(event) => onAnswer(event.target.value)}
           autoComplete="off"
-          className={`h-9.5 w-full rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
-            showPrefixBadge ? 'max-w-[240px]' : 'placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
+          className={`h-9.5 rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
+            matching
+              ? 'w-[115px] text-center font-semibold placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
+              : showPrefixBadge
+                ? 'w-full max-w-[240px]'
+                : 'w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
           }`}
         />
       </div>
