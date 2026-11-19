@@ -1,10 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { useEffect, useMemo, useRef } from 'react'
+import { Check } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { readStringArray } from '@/lib/grading'
 import type { ExamGroup, UserAnswer } from '@/lib/types'
+
+function isMatchingCategory(category?: string | null) {
+  return (category ?? '').toLowerCase().includes('matching')
+}
 
 function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) {
   const raw = question.options ?? group.shared_options
@@ -32,9 +36,21 @@ function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) 
   const category = (group.question_category ?? '').toLowerCase()
   if (category.includes('true/false')) return ['TRUE', 'FALSE', 'NOT GIVEN'].map((value) => ({ value, label: value }))
   if (category.includes('yes/no')) return ['YES', 'NO', 'NOT GIVEN'].map((value) => ({ value, label: value }))
-  if (category.includes('matching information')) return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((value) => ({ value, label: `Paragraph ${value}` }))
-  if (category.includes('matching headings') || category.includes('matching features')) return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((value) => ({ value, label: value }))
   return []
+}
+
+function getSharedOptionList(group: ExamGroup): string[] {
+  if (!Array.isArray(group.shared_options)) return []
+  return group.shared_options
+    .map((item) => {
+      if (typeof item === 'string') return item.trim()
+      if (item && typeof item === 'object') {
+        const record = item as Record<string, unknown>
+        return String(record.label ?? record.text ?? record.value ?? '').trim()
+      }
+      return ''
+    })
+    .filter(Boolean)
 }
 
 export function SharedContentAnswers({
@@ -77,102 +93,6 @@ export function SharedContentAnswers({
   return <div ref={rootRef} className="rich-content" dangerouslySetInnerHTML={{ __html: markup }} />
 }
 
-function ComboBox({
-  options,
-  value,
-  onChange,
-  ariaLabel,
-}: {
-  options: Array<{ value: string; label: string }>
-  value: string
-  onChange: (value: string) => void
-  ariaLabel: string
-}) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const selected = options.find((opt) => opt.value === value)
-  const filtered = useMemo(() => {
-    if (!query.trim()) return options
-    const q = query.trim().toLowerCase()
-    return options.filter((opt) => opt.value.toLowerCase().includes(q) || opt.label.toLowerCase().includes(q))
-  }, [options, query])
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-        setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const selectOption = (optValue: string) => {
-    onChange(optValue)
-    setOpen(false)
-    setQuery('')
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (filtered.length >= 1) selectOption(filtered[0].value)
-    }
-    if (e.key === 'Escape') {
-      setOpen(false)
-      setQuery('')
-    }
-  }
-
-  return (
-    <div ref={ref} className="relative max-w-[420px]">
-      <div className="relative">
-        <input
-          ref={inputRef}
-          type="text"
-          aria-label={ariaLabel}
-          value={open ? query : (selected?.label ?? '')}
-          placeholder="Chọn hoặc gõ đáp án..."
-          onFocus={() => setOpen(true)}
-          onChange={(e) => {
-            setOpen(true)
-            setQuery(e.target.value)
-            if (selected) onChange('')
-          }}
-          onKeyDown={handleKeyDown}
-          autoComplete="off"
-          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 pr-9 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
-        />
-        <ChevronDown className={`pointer-events-none absolute right-3 top-3 size-4 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
-      </div>
-      {open && (
-        <ul role="listbox" className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-          {filtered.length ? (
-            filtered.map((opt) => (
-              <li key={opt.value} role="option" aria-selected={opt.value === value}>
-                <button
-                  type="button"
-                  onClick={() => selectOption(opt.value)}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-sky-50 ${opt.value === value ? 'bg-sky-50 font-semibold text-sky-800' : 'text-slate-700'}`}
-                >
-                  <span>{opt.label}</span>
-                  {opt.value === value && <Check className="size-4 text-sky-600" />}
-                </button>
-              </li>
-            ))
-          ) : (
-            <li className="px-3 py-2 text-sm text-slate-400">Không tìm thấy đáp án</li>
-          )}
-        </ul>
-      )}
-    </div>
-  )
-}
-
 function QuestionControl({
   group,
   question,
@@ -184,14 +104,16 @@ function QuestionControl({
   answer: UserAnswer | undefined
   onAnswer: (answer: UserAnswer) => void
 }) {
+  const matching = isMatchingCategory(group.question_category)
   const options = getOptions(question, group)
   const selected: string[] = Array.isArray(answer) ? answer.filter((item): item is string => typeof item === 'string') : []
 
-  if (group.input_type === 'text_box') {
+  if (group.input_type === 'text_box' || matching) {
     return (
       <input
         type="text"
         aria-label={`Đáp án câu ${question.question_number}`}
+        placeholder={matching ? 'Nhập ký tự / đáp án đối chiếu...' : 'Nhập câu trả lời...'}
         value={typeof answer === 'string' ? answer : ''}
         onChange={(event) => onAnswer(event.target.value)}
         autoComplete="off"
@@ -201,13 +123,41 @@ function QuestionControl({
   }
 
   if (group.input_type === 'combo_box') {
+    const currentValue = typeof answer === 'string' ? answer : ''
     return (
-      <ComboBox
-        options={options}
-        value={typeof answer === 'string' ? answer : ''}
-        onChange={onAnswer}
-        ariaLabel={`Chọn đáp án cho câu ${question.question_number}`}
-      />
+      <fieldset className="flex flex-col gap-2">
+        <legend className="sr-only">Chọn một đáp án cho câu {question.question_number}</legend>
+        {options.map((option) => {
+          const checked = currentValue === option.value
+          return (
+            <label
+              key={option.value}
+              className={`relative inline-flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition ${
+                checked
+                  ? 'border-sky-400 bg-sky-50 font-semibold text-sky-900 shadow-xs'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/70'
+              }`}
+            >
+              <input
+                type="radio"
+                name={`question-${question.id}`}
+                checked={checked}
+                onChange={() => onAnswer(option.value)}
+                className="peer absolute inset-0 m-0 size-full cursor-pointer opacity-0"
+              />
+              <span
+                aria-hidden="true"
+                className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
+                  checked ? 'border-sky-600 bg-sky-600' : 'border-slate-300 bg-white'
+                }`}
+              >
+                {checked && <span className="size-1.5 rounded-full bg-white" />}
+              </span>
+              <span>{option.label}</span>
+            </label>
+          )
+        })}
+      </fieldset>
     )
   }
 
@@ -283,8 +233,15 @@ export function QuestionGroupCard({
   answers: Record<string, UserAnswer>
   onAnswer: (questionId: string, answer: UserAnswer) => void
 }) {
-  const hasInlineAnswers = group.input_type === 'text_box' && Boolean(group.shared_content?.match(/\[\d+\]/))
-  const optionLabel = group.input_type === 'check_box' ? 'Chọn đáp án phù hợp' : group.input_type === 'combo_box' ? 'Chọn một đáp án' : 'Nhập câu trả lời'
+  const matching = isMatchingCategory(group.question_category)
+  const isTextInput = group.input_type === 'text_box' || matching
+  const hasInlineAnswers = isTextInput && Boolean(group.shared_content?.match(/\[\d+\]/))
+  const sharedOptionList = matching ? getSharedOptionList(group) : []
+  const optionLabel = isTextInput
+    ? 'Nhập đáp án đối chiếu'
+    : group.input_type === 'check_box'
+      ? 'Chọn đáp án phù hợp'
+      : 'Chọn một đáp án'
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby={`group-${group.id}`}>
@@ -299,7 +256,18 @@ export function QuestionGroupCard({
       </div>
       <div className="space-y-1 p-4 sm:p-5">
         {group.shared_content && <SharedContentAnswers group={group} answers={answers} onAnswer={onAnswer} />}
-        {group.shared_content && group.input_type === 'text_box' && group.questions.some((question) => !group.shared_content?.includes(`[${question.question_number}]`)) && (
+        {sharedOptionList.length > 0 && (
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3.5">
+            <ul className="space-y-1.5 text-sm text-slate-800">
+              {sharedOptionList.map((opt) => (
+                <li key={opt} className="leading-relaxed">
+                  {opt}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {group.shared_content && isTextInput && group.questions.some((question) => !group.shared_content?.includes(`[${question.question_number}]`)) && (
           <p className="mt-3 text-xs text-slate-500">{optionLabel}</p>
         )}
         {group.questions.map((question) => {
@@ -314,7 +282,7 @@ export function QuestionGroupCard({
                 <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700">{badgeLabel}</span>
                 <div className="min-w-0 flex-1">
                   {question.question_text && <div className="rich-content text-sm font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />}
-                  {questionOptions.length > 0 && group.input_type !== 'text_box' && <p className="mt-1 text-xs text-slate-500">{optionLabel}</p>}
+                  {questionOptions.length > 0 && !isTextInput && <p className="mt-1 text-xs text-slate-500">{optionLabel}</p>}
                 </div>
               </div>
               <div className="pl-10">
