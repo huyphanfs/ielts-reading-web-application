@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Bookmark, Check, CircleHelp, Info, Lightbulb, MessageSquareText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
+import { sanitizeHtml } from '@/lib/sanitize'
 import type { ExamDefinition, GradingSummary, QuestionResult, SavedTestResult, UserAnswer } from '@/lib/types'
 
 type StudyNote = { id: string; quote: string; text: string; color?: string }
@@ -173,14 +174,24 @@ export function ResultsScreen({
     </div>
 
     {selectedQuestion && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedQuestion(null) }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="explanation-title" className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-100 p-5"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-600">Question {selectedQuestion.question_number} · Passage {selectedQuestion.passage_part}</p><h2 id="explanation-title" className="mt-1 text-lg font-bold text-slate-950">Answer Explanation</h2></div><Button variant="ghost" size="icon" aria-label="Close explanation" onClick={() => setSelectedQuestion(null)}><X className="size-4" /></Button></div>
-        <div className="p-5">
+      <section role="dialog" aria-modal="true" aria-labelledby="explanation-title" className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex shrink-0 items-start justify-between border-b border-slate-100 p-5"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-600">Question {selectedQuestion.question_number} · Passage {selectedQuestion.passage_part}</p><h2 id="explanation-title" className="mt-1 text-lg font-bold text-slate-950">Answer Explanation</h2></div><Button variant="ghost" size="icon" aria-label="Close explanation" onClick={() => setSelectedQuestion(null)}><X className="size-4" /></Button></div>
+        <div className="overflow-y-auto p-5">
           {selectedQuestion.question_text && <p className="text-sm font-medium leading-6 text-slate-800">{selectedQuestion.question_text}</p>}
           <div className="mt-4 rounded-xl bg-sky-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-sky-700">Accepted Answer</p><p className="mt-1 font-semibold text-sky-950">{selectedQuestion.accepted_answers.join(' / ') || 'No answer configured'}</p></div>
-          <div className="mt-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Explanation</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{selectedQuestion.explanation || 'No explanation provided for this question yet.'}</p></div>
+          <div className="mt-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Explanation</p>
+            {selectedQuestion.explanation ? (
+              <div
+                className="mt-2 space-y-2 text-sm leading-6 text-slate-700 [&_img]:my-3 [&_img]:max-h-80 [&_img]:w-auto [&_img]:max-w-full [&_img]:rounded-xl [&_img]:border [&_img]:border-slate-200 [&_img]:object-contain [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:leading-6 [&_strong]:font-semibold [&_strong]:text-slate-900 [&_ul]:list-disc [&_ul]:pl-5"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedQuestion.explanation) }}
+              />
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-700">No explanation provided for this question yet.</p>
+            )}
+          </div>
         </div>
-        <div className="flex justify-end border-t border-slate-100 px-5 py-3"><Button onClick={() => setSelectedQuestion(null)} variant="outline" className="rounded-lg">Close</Button></div>
+        <div className="flex shrink-0 justify-end border-t border-slate-100 px-5 py-3"><Button onClick={() => setSelectedQuestion(null)} variant="outline" className="rounded-lg">Close</Button></div>
       </section>
     </div>}
   </main>
