@@ -537,7 +537,7 @@ export function PassageManager() {
                           {rowTopics.map((topicItem) => (
                             <span
                               key={topicItem}
-                              className="inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50/70 px-2.5 py-0.5 text-xs font-medium text-indigo-700"
+                              className="inline-flex items-center gap-1 rounded-full border border-sky-200/80 bg-sky-50/80 px-2.5 py-0.5 text-xs font-medium text-sky-700"
                             >
                               <Tag className="size-3" /> {topicItem}
                             </span>
@@ -868,14 +868,17 @@ export function PassageManager() {
             </label>
 
             {/* Chọn tối đa 2 chủ đề (Topics) */}
-            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 md:col-span-2 lg:col-span-4">
+            <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 md:col-span-2 lg:col-span-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-700">Chủ đề (Topic)</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                    <Tag className="size-3.5 text-sky-600" />
+                    Chủ đề (Topic)
+                  </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                       reachedMaxTopics
-                        ? 'bg-indigo-100 text-indigo-800'
+                        ? 'bg-sky-100 text-sky-800'
                         : 'bg-slate-200/70 text-slate-600'
                     }`}
                   >
@@ -916,10 +919,10 @@ export function PassageManager() {
                       onClick={() => toggleFormTopic(topicItem)}
                       className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                         isSelected
-                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          ? 'border-sky-600 bg-sky-600 text-white shadow-xs'
                           : isDisabled
                             ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-50'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50/70 hover:text-sky-700'
                       }`}
                     >
                       <Tag className="size-3" />
