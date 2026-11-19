@@ -13,7 +13,7 @@ export async function loadExamDefinition(input: {
   retryQuestionIds?: string[]
 }): Promise<ExamDefinition> {
   const passageIds = input.passages.map((passage) => passage.id)
-  if (!passageIds.length) throw new Error('Không tìm thấy bài đọc cho đề thi này.')
+  if (!passageIds.length) throw new Error('No reading passages found for this test.')
 
   const [{ data: groupData, error: groupError }, { data: questionData, error: questionError }] = await Promise.all([
     supabase.from('question_groups').select('*').in('passage_id', passageIds).order('group_order'),
