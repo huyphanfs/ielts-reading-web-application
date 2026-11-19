@@ -77,6 +77,8 @@ export function QuestionEditor({
   onCancel: () => void
 }) {
   const isDefaultTfOrYn = getDefaultCategoryOptions(group.question_category).length > 0
+  const isMatching = group.question_category.toLowerCase().includes('matching')
+  const isTextInput = group.input_type === 'text_box' || isMatching
 
   const [number, setNumber] = useState(String(question?.question_number ?? nextNumber))
   const [questionText, setQuestionText] = useState(question?.question_text ?? '')
@@ -170,20 +172,19 @@ export function QuestionEditor({
     }
     const parsedOptions = optionsText.split('\n').map((item) => item.trim()).filter(Boolean)
     const options = parsedOptions.length ? parsedOptions : getDefaultCategoryOptions(group.question_category)
-    const accepted =
-      group.input_type === 'text_box'
-        ? textAnswers.map((answer) => answer.trim()).filter(Boolean)
-        : group.input_type === 'combo_box'
-          ? singleAnswer
-            ? [singleAnswer]
-            : []
-          : selectedAnswers
+    const accepted = isTextInput
+      ? textAnswers.map((answer) => answer.trim()).filter(Boolean)
+      : group.input_type === 'combo_box'
+        ? singleAnswer
+          ? [singleAnswer]
+          : []
+        : selectedAnswers
 
     if (!accepted.length) {
       setError('Hãy chọn hoặc nhập ít nhất một đáp án đúng.')
       return
     }
-    if (group.input_type !== 'text_box' && !options.length) {
+    if (!isTextInput && !options.length) {
       setError('Thêm các lựa chọn vào danh sách, mỗi lựa chọn trên một dòng.')
       return
     }
@@ -194,7 +195,7 @@ export function QuestionEditor({
       group_id: group.id,
       question_number: questionNumber,
       question_text: questionText.trim() || null,
-      options: group.input_type === 'text_box' ? null : options,
+      options: isTextInput ? null : options,
       accepted_answers: accepted,
       explanation: explanation.trim() || null,
     }
@@ -225,7 +226,7 @@ export function QuestionEditor({
         </label>
       </div>
 
-      {group.input_type === 'text_box' ? (
+      {isTextInput ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           {textAnswers.map((answer, index) => (
             <label key={index} className="text-xs font-semibold text-slate-600">
@@ -233,7 +234,11 @@ export function QuestionEditor({
               <input value={answer} onChange={(event) => setTextAnswers((current) => current.map((value, i) => (i === index ? event.target.value : value)))} placeholder="Có thể để trống" className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400" />
             </label>
           ))}
-          <p className="sm:col-span-3 text-[11px] leading-5 text-slate-500">Nhập tối đa ba cách viết tương đương. Không phân biệt hoa/thường khi chấm.</p>
+          <p className="sm:col-span-3 text-[11px] leading-5 text-slate-500">
+            {isMatching
+              ? 'Nhập ký tự hoặc đáp án đối chiếu (vd: A, B, iv...). Không phân biệt chữ hoa/thường khi chấm.'
+              : 'Nhập tối đa ba cách viết tương đương. Không phân biệt hoa/thường khi chấm.'}
+          </p>
         </div>
       ) : (
         <div className="mt-4 space-y-3">
