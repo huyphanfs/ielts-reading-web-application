@@ -384,4 +384,29 @@ export function ReadingApp() {
               <div className="flex size-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><BookOpenCheck className="size-5" /></div>
               <div className="mt-5 flex items-end justify-between gap-3">
                 <div><h3 className="text-xl font-bold text-slate-950">Single Passage Practice</h3><p className="mt-2 text-sm leading-6 text-slate-600">Pick an individual passage to focus on specific question types or topics.</p></div>
-                <span className="shrink-0 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-
+                <span className="shrink-0 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800">{practicePassages.length} {practicePassages.length === 1 ? 'passage' : 'passages'}</span>
+              </div>
+              <div className="mt-6 space-y-2">
+                {practicePassages.length ? practicePassages.map((passage) => {
+                  const count = counts[passage.id] ?? 0
+                  return <button key={passage.id} type="button" disabled={starting || count === 0} onClick={() => void startPractice(passage)} className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-800">{passage.title}</span><span className="mt-0.5 block text-xs text-slate-500">Passage {passage.passage_part} · {count} {count === 1 ? 'question' : 'questions'} · {formatMinutes(passage.time_limit ?? 20)}</span></span>
+                    <ArrowRight className="ml-3 size-4 shrink-0 text-slate-400" />
+                  </button>
+                }) : <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                  <BookOpenCheck className="mx-auto size-6 text-slate-400" /><p className="mt-3 text-sm font-semibold text-slate-700">No practice passages yet</p><p className="mt-1 text-xs text-slate-500">New reading passages will appear here once added to the library.</p>
+                </div>}
+              </div>
+            </article>
+          </div>
+        )}
+      </section>
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-[1240px] flex-col gap-2 px-4 py-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span>IELTS Reading · Academic Practice Environment</span>
+          <span>{profile?.role === 'admin' ? 'Verified administrator account' : 'Sign in to save your test results'}</span>
+        </div>
+      </footer>
+    </main>
+  )
+}
