@@ -6,10 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
+const DEFAULT_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash']
 
-const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. Given raw, unstructured text containing an IELTS Reading passage, questions, and answer keys/explanations, you must extract and return a structured JSON object.
+const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. Given raw text (which may be HTML or plain text, and may have missing line breaks from PDF copy-pasting) containing an IELTS Reading passage, questions, and answer keys/explanations, you must extract and return a structured JSON object.
 
 Return JSON with this exact schema:
 {
@@ -38,6 +37,7 @@ Return JSON with this exact schema:
 }
 
 Important rules:
+- If paragraphs or section labels (like "A.", "B.", "C." or "Questions 1-13") were merged onto one line during copy-paste, intelligently separate them into clean <p> paragraphs in passage_content.
 - For "Choose TWO letters" questions with answers like ["B","D"], create ONE question with both answers in accepted_answers. The system will expand it.
 - For Summary/Note/Table Completion, use shared_content with [number] placeholders and input_type "text_box".
 - For Matching Headings/Features/Information, use input_type "combo_box" with shared_options listing all heading/feature options.
@@ -70,35 +70,58 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const response = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `${SYSTEM_PROMPT}\n\n--- RAW TEXT TO PARSE ---\n${rawText}` }],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      }),
-    })
+    const configuredModel = process.env.GEMINI_MODEL?.trim()
+    const modelsToTry = configuredModel
+      ? [configuredModel, ...DEFAULT_MODELS.filter((m) => m !== configuredModel)]
+      : DEFAULT_MODELS
 
-    if (!response.ok) {
-      const errorText = await response.text()
+    let lastStatus = 502
+    let lastErrorText = ''
+    let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } | null = null
+
+    for (const model of modelsToTry) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_PROMPT}\n\n--- RAW TEXT TO PARSE ---\n${rawText}` }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        }),
+      })
+
+      if (response.ok) {
+        data = await response.json()
+        break
+      }
+
+      lastStatus = response.status
+      lastErrorText = await response.text()
+
+      // Chỉ fallback sang model kế tiếp nếu model hiện tại không khả dụng (404)
+      if (response.status !== 404) {
+        break
+      }
+    }
+
+    if (!data) {
       return NextResponse.json(
-        { error: `Gemini API trả về lỗi ${response.status}: ${errorText.slice(0, 200)}` },
+        { error: `Gemini API trả về lỗi ${lastStatus}: ${lastErrorText.slice(0, 260)}` },
         { status: 502, headers: corsHeaders },
       )
     }
 
-    const data = await response.json()
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!text) {
