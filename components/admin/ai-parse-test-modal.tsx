@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   Save,
   Sparkles,
+  Tag,
   Underline,
   X,
 } from 'lucide-react'
@@ -20,6 +21,13 @@ import DOMPurify from 'isomorphic-dompurify'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
+import {
+  MAX_PASSAGE_TOPICS,
+  PASSAGE_TOPICS,
+  formatPassageTopics,
+  parsePassageTopics,
+} from '@/lib/types'
+import type { PassageTopic } from '@/lib/types'
 import type { LucideIcon } from 'lucide-react'
 
 const supabase = createClient()
@@ -43,6 +51,7 @@ type ParsedGroup = {
 
 type ParsedQuestionsResponse = {
   passageTitle?: string
+  suggested_topics?: string[]
   duration_minutes?: number
   question_groups?: ParsedGroup[]
 }
@@ -185,36 +194,7 @@ function RichFormatTextBox({
       img.style.maxWidth = '100%'
 
       editorRef.current?.focus()
-      document.execCommand('insertHTML', false, `${img.outerHTML}<p><br></p>`)
-      onContentChange?.()
-    } catch {
-      setUploadError('Lỗi kết nối khi tải hình ảnh lên.')
-    } finally {
-      setUploadingImage(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    // 1. Hỗ trợ dán trực tiếp hình ảnh từ clipboard (Ctrl+V ảnh chụp màn hình)
-    const items = Array.from(e.clipboardData.items || [])
-    const imageItem = items.find((item) => item.type.startsWith('image/'))
-    if (imageItem) {
-      e.preventDefault()
-      const file = imageItem.getAsFile()
-      if (file) void uploadAndInsertImage(file)
-      return
-    }
-
-    // 2. Xử lý dán văn bản/HTML từ Word/PDF/Web
-    e.preventDefault()
-    const html = e.clipboardData.getData('text/html')
-    const plain = e.clipboardData.getData('text/plain')
-    const cleanHtml = html
-      ? sanitizeRichPaste(html)
-      : autoFormatOnPaste
-        ? plainTextToHtml(plain)
-        : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
+      document.execCommand('insertHTML', false, `${img.outerHTML}<p><br></p>`) onContentChange?.() } catch { setUploadError('Lỗi kết nối khi tải hình ảnh lên.') } finally { setUploadingImage(false) if (fileInputRef.current) fileInputRef.current.value = '' } }  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => { const items = Array.from(e.clipboardData.items \vert{}\vert{} []) const imageItem = items.find((item) => item.type.startsWith('image/')) if (imageItem) { e.preventDefault() const file = imageItem.getAsFile() if (file) void uploadAndInsertImage(file) return }  e.preventDefault() const html = e.clipboardData.getData('text/html') const plain = e.clipboardData.getData('text/plain') const cleanHtml = html ? sanitizeRichPaste(html) : autoFormatOnPaste ? plainTextToHtml(plain) : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
     if (cleanHtml) {
       document.execCommand('insertHTML', false, cleanHtml)
       onContentChange?.()
@@ -311,6 +291,7 @@ export function AIParseTestModal({
   // Cấu hình chung
   const [targetPart, setTargetPart] = useState<1 | 2 | 3>(1)
   const [passageTitle, setPassageTitle] = useState('')
+  const [selectedTopics, setSelectedTopics] = useState<PassageTopic[]>([])
   const [durationMinutes, setDurationMinutes] = useState(20)
   const [questionCount, setQuestionCount] = useState(13)
   const [autoDetectTypes, setAutoDetectTypes] = useState(true)
@@ -345,13 +326,52 @@ export function AIParseTestModal({
     setNotice(null)
   }, [open])
 
+  const resetModalState = () => {
+    setTargetPart(1)
+    setPassageTitle('')
+    setSelectedTopics([])
+    setDurationMinutes(20)
+    setQuestionCount(13)
+    setAutoDetectTypes(true)
+    setQuestionTypes([])
+    setSavedPassageId(null)
+    setPassageDone(false)
+    setQuestionsDone(false)
+    setParsedGroups([])
+    setAnswersDone(false)
+    setMatchedAnswersCount(0)
+    setError(null)
+    setNotice(null)
+    if (passageEditorRef.current) passageEditorRef.current.innerHTML = ''
+    if (questionsEditorRef.current) questionsEditorRef.current.innerHTML = ''
+    if (answersEditorRef.current) answersEditorRef.current.innerHTML = ''
+  }
+
+  const handleCloseModal = () => {
+    resetModalState()
+    onClose()
+  }
+
+  const toggleTopic = (topicItem: PassageTopic) => {
+    setPassageDone(false)
+    setSelectedTopics((current) => {
+      if (current.includes(topicItem)) {
+        return current.filter((t) => t !== topicItem)
+      }
+      if (current.length >= MAX_PASSAGE_TOPICS) {
+        return current
+      }
+      return [...current, topicItem]
+    })
+  }
+
   const toggleType = (type: string) => {
     setQuestionTypes((current) =>
       current.includes(type) ? current.filter((t) => t !== type) : [...current, type],
     )
   }
 
-  // --- PHẦN 1: LƯU BÀI ĐỌC (PASSAGE) ---
+  // --- PHẦN 1: LƯU BÀI ĐỌC (PASSAGE + MAX 2 TOPICS) ---
   const handleSavePassage = async (): Promise<string | null> => {
     setError(null)
     setNotice(null)
@@ -368,48 +388,48 @@ export function AIParseTestModal({
     const derivedTitle =
       passageTitle.trim() ||
       plainText.split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 120) ||
-      `Passage ${targetPart}`
-
-    setSavingPassage(true)
-    try {
-      const payload = {
-        title: derivedTitle,
-        content: sanitizeHtml(rawHtml),
-        passage_part: targetPart,
-        is_test_only: false,
-        time_limit: Math.max(1, Number(durationMinutes) || 20),
-      }
-
-      if (savedPassageId) {
-        const { error: updateErr } = await supabase
-          .from('passages')
-          .update(payload)
-          .eq('id', savedPassageId)
-
-        if (updateErr) {
-          setError('Không thể cập nhật bài đọc. Kiểm tra quyền admin.')
-          return null
-        }
-        setPassageTitle(derivedTitle)
-        setPassageDone(true)
-        setNotice('Đã cập nhật nội dung Phần 1 (Bài đọc) lên hệ thống.')
+      `Passage ${targetPart}`  setSavingPassage(true) try { const basePayload = { title: derivedTitle, content: sanitizeHtml(rawHtml), passage_part: targetPart, is_test_only: false, time_limit: Math.max(1, Number(durationMinutes) \vert{}\vert{} 20), } const fullPayload = { ...basePayload, topic: formatPassageTopics(selectedTopics), }  if (savedPassageId) { let updateRes = await supabase .from('passages') .update(fullPayload) .eq('id', savedPassageId)  if (updateRes.error && updateRes.error.message?.toLowerCase().includes('topic')) { updateRes = await supabase .from('passages') .update(basePayload) .eq('id', savedPassageId)  if (!updateRes.error) { setPassageTitle(derivedTitle) setPassageDone(true) setNotice( 'Đã cập nhật bài đọc, nhưng bảng passages trên Supabase chưa có cột "topic". Hãy chạy SQL: alter table passages add column topic text;', ) return savedPassageId } }  if (updateRes.error) { setError('Không thể cập nhật bài đọc. Kiểm tra quyền admin.') return null } setPassageTitle(derivedTitle) setPassageDone(true) setNotice( selectedTopics.length ? `Đã cập nhật Phần 1 (Bài đọc) với chủ đề: ${selectedTopics.join(', ')}.`
+            : 'Đã cập nhật nội dung Phần 1 (Bài đọc) lên hệ thống.',
+        )
         return savedPassageId
       } else {
-        const { data, error: insertErr } = await supabase
+        let insertRes = await supabase
           .from('passages')
-          .insert({ ...payload, question_count: 0 })
+          .insert({ ...fullPayload, question_count: 0 })
           .select('id')
           .single()
 
-        if (insertErr || !data) {
+        if (insertRes.error && insertRes.error.message?.toLowerCase().includes('topic')) {
+          insertRes = await supabase
+            .from('passages')
+            .insert({ ...basePayload, question_count: 0 })
+            .select('id')
+            .single()
+
+          if (!insertRes.error && insertRes.data) {
+            setSavedPassageId(insertRes.data.id)
+            setPassageTitle(derivedTitle)
+            setPassageDone(true)
+            setNotice(
+              'Đã lưu bài đọc, nhưng bảng passages trên Supabase chưa có cột "topic". Hãy chạy SQL: alter table passages add column topic text;',
+            )
+            return insertRes.data.id
+          }
+        }
+
+        if (insertRes.error || !insertRes.data) {
           setError('Không thể lưu bài đọc mới. Kiểm tra kết nối Supabase và quyền admin.')
           return null
         }
-        setSavedPassageId(data.id)
+        setSavedPassageId(insertRes.data.id)
         setPassageTitle(derivedTitle)
         setPassageDone(true)
-        setNotice('Đã lưu xong Phần 1 (Bài đọc). Bạn có thể tiếp tục Phần 2 hoặc Phần 3.')
-        return data.id
+        setNotice(
+          selectedTopics.length
+            ? `Đã lưu xong Phần 1 (Bài đọc · Chủ đề: ${selectedTopics.join(', ')}). Bạn có thể tiếp tục Phần 2 hoặc Phần 3.`
+            : 'Đã lưu xong Phần 1 (Bài đọc). Bạn có thể tiếp tục Phần 2 hoặc Phần 3.',
+        )
+        return insertRes.data.id
       }
     } finally {
       setSavingPassage(false)
@@ -430,7 +450,6 @@ export function AIParseTestModal({
       return
     }
 
-    // Tự động lưu Phần 1 nếu người dùng chưa bấm nút Lưu ở Phần 1
     let activePassageId = savedPassageId
     if (!activePassageId) {
       activePassageId = await handleSavePassage()
@@ -464,12 +483,27 @@ export function AIParseTestModal({
         return
       }
 
-      // Cập nhật tiêu đề nếu trước đó để trống và AI tìm thấy tiêu đề
+      const passageUpdates: Record<string, unknown> = {}
       if (!passageTitle.trim() && result.passageTitle?.trim()) {
         setPassageTitle(result.passageTitle.trim())
+        passageUpdates.title = result.passageTitle.trim()
+      }
+
+      // Nếu admin chưa tự chọn Topic thì lấy tối đa 2 Topic do AI gợi ý
+      let appliedTopics = selectedTopics
+      if (selectedTopics.length === 0 && Array.isArray(result.suggested_topics) && result.suggested_topics.length > 0) {
+        const aiTopics = parsePassageTopics(result.suggested_topics.join(', '))
+        if (aiTopics.length > 0) {
+          setSelectedTopics(aiTopics)
+          appliedTopics = aiTopics
+          passageUpdates.topic = formatPassageTopics(aiTopics)
+        }
+      }
+
+      if (Object.keys(passageUpdates).length > 0) {
         await supabase
           .from('passages')
-          .update({ title: result.passageTitle.trim() })
+          .update(passageUpdates)
           .eq('id', activePassageId)
       }
 
@@ -512,22 +546,8 @@ export function AIParseTestModal({
         if (questionRows.length) {
           const { error: qError } = await supabase.from('questions').insert(questionRows)
           if (qError) {
-            setError(`Lỗi khi lưu danh sách câu hỏi nhóm ${gi + 1}.`)
-            return
-          }
-          totalInserted += questionRows.length
-        }
-      }
-
-      await supabase
-        .from('passages')
-        .update({ question_count: totalInserted })
-        .eq('id', activePassageId)
-
-      setParsedGroups(groups)
-      setQuestionsDone(true)
-      setAnswersDone(false)
-      setNotice(`Đã trích xuất và lưu ${totalInserted} câu hỏi cho Phần 2. Tiếp tục nhập Phần 3 (Đáp án & Giải thích).`)
+            setError(`Lỗi khi lưu danh sách câu hỏi nhóm ${gi + 1}.`) return } totalInserted += questionRows.length } }  await supabase .from('passages') .update({ question_count: totalInserted }) .eq('id', activePassageId)  setParsedGroups(groups) setQuestionsDone(true) setAnswersDone(false) setNotice( appliedTopics.length > 0 ? `Đã trích xuất và lưu ${totalInserted} câu hỏi (Chủ đề: ${appliedTopics.join(', ')}). Tiếp tục nhập Phần 3 (Đáp án & Giải thích).` : `Đã trích xuất và lưu ${totalInserted} câu hỏi cho Phần 2. Tiếp tục nhập Phần 3 (Đáp án & Giải thích).`,
+      )
     } catch {
       setError('Lỗi kết nối tới server khi phân tích câu hỏi.')
     } finally {
@@ -615,7 +635,6 @@ export function AIParseTestModal({
         }
       }
 
-      // Cập nhật lại state preview để hiển thị đáp án & giải thích đã khớp
       setParsedGroups((prev) =>
         prev.map((group) => ({
           ...group,
@@ -643,8 +662,10 @@ export function AIParseTestModal({
   }
 
   const handleFinish = () => {
-    if (savedPassageId) {
-      onSaved(savedPassageId)
+    const createdId = savedPassageId
+    resetModalState()
+    if (createdId) {
+      onSaved(createdId)
     }
     onClose()
   }
@@ -652,13 +673,14 @@ export function AIParseTestModal({
   if (!open) return null
 
   const totalExtractedQuestions = parsedGroups.reduce((sum, g) => sum + g.questions.length, 0)
+  const reachedMaxTopics = selectedTopics.length >= MAX_PASSAGE_TOPICS
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose()
+        if (e.target === e.currentTarget) handleCloseModal()
       }}
     >
       <div
@@ -678,13 +700,13 @@ export function AIParseTestModal({
                 AI Tự Động Tạo Đề (3 Phần Độc Lập)
               </h2>
               <p className="text-xs text-slate-500">
-                Nhập từng phần Bài đọc · Câu hỏi · Đáp án &amp; Giải thích — hỗ trợ định dạng và chèn hình ảnh
+                Nhập từng phần Bài đọc · Câu hỏi · Đáp án &amp; Giải thích — hỗ trợ gán tối đa 2 Topic và chèn hình ảnh
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseModal}
             className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             aria-label="Đóng"
           >
@@ -694,14 +716,17 @@ export function AIParseTestModal({
 
         {/* Body */}
         <div className="flex-1 space-y-6 overflow-y-auto bg-slate-50/60 p-5">
-          {/* Thanh cấu hình chung */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          {/* Thanh cấu hình chung + Chọn tối đa 2 Topic */}
+          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="grid gap-4 sm:grid-cols-4">
               <label className="text-xs font-semibold text-slate-600">
                 Gán Passage
                 <select
                   value={targetPart}
-                  onChange={(e) => setTargetPart(Number(e.target.value) as 1 | 2 | 3)}
+                  onChange={(e) => {
+                    setTargetPart(Number(e.target.value) as 1 | 2 | 3)
+                    setPassageDone(false)
+                  }}
                   className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"
                 >
                   <option value={1}>Passage 1</option>
@@ -715,7 +740,10 @@ export function AIParseTestModal({
                 <input
                   type="text"
                   value={passageTitle}
-                  onChange={(e) => setPassageTitle(e.target.value)}
+                  onChange={(e) => {
+                    setPassageTitle(e.target.value)
+                    setPassageDone(false)
+                  }}
                   placeholder="Ví dụ: The History of Glass (để trống sẽ tự lấy dòng đầu)"
                   className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
                 />
@@ -742,12 +770,83 @@ export function AIParseTestModal({
                     min={1}
                     max={90}
                     value={durationMinutes}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setDurationMinutes(Math.max(1, Math.min(90, Number(e.target.value) || 20)))
-                    }
+                      setPassageDone(false)
+                    }}
                     className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
                   />
                 </label>
+              </div>
+            </div>
+
+            {/* Bộ chọn Chủ đề (Tối đa 2 Topic) */}
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                    <Tag className="size-3.5 text-indigo-600" />
+                    Chủ đề bài đọc (Topic)
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      reachedMaxTopics
+                        ? 'bg-indigo-100 text-indigo-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    Đã chọn {selectedTopics.length}/{MAX_PASSAGE_TOPICS}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-slate-400">
+                    {selectedTopics.length === 0
+                      ? 'Có thể chọn tối đa 2 chủ đề hoặc để AI tự gợi ý'
+                      : reachedMaxTopics
+                        ? 'Đã đạt tối đa 2 chủ đề (bấm vào thẻ đang chọn để bỏ)'
+                        : 'Có thể chọn thêm 1 chủ đề nữa'}
+                  </span>
+                  {selectedTopics.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTopics([])
+                        setPassageDone(false)
+                      }}
+                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-700"
+                    >
+                      Xóa chọn
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {PASSAGE_TOPICS.map((topicItem) => {
+                  const isSelected = selectedTopics.includes(topicItem)
+                  const isDisabled = !isSelected && reachedMaxTopics
+                  return (
+                    <button
+                      key={topicItem}
+                      type="button"
+                      disabled={isDisabled}
+                      aria-pressed={isSelected}
+                      onClick={() => toggleTopic(topicItem)}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          : isDisabled
+                            ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-50'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-700'
+                      }`}
+                    >
+                      <Tag className="size-3" />
+                      {topicItem}
+                      {isSelected && <X className="ml-0.5 size-3" />}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -1022,7 +1121,7 @@ export function AIParseTestModal({
               : 'Lưu Phần 1 trước hoặc bấm trực tiếp nút xử lý ở từng phần.'}
           </span>
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={onClose} className="rounded-lg">
+            <Button type="button" variant="outline" onClick={handleCloseModal} className="rounded-lg">
               Đóng
             </Button>
             {savedPassageId && (
