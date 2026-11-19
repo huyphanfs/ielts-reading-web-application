@@ -1,17 +1,33 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { BookOpen, LogOut, ShieldCheck, Sparkles, UserRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth-provider'
 
-export function AppHeader({ compact = false }: { compact?: boolean }) {
+export function AppHeader({ compact = false, onHomeClick }: { compact?: boolean; onHomeClick?: () => void }) {
   const { user, profile, loading, authError, signInWithGoogle, signOut } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/85 backdrop-blur-xl">
       <div className={`mx-auto flex h-[68px] max-w-[1440px] items-center justify-between px-4 sm:px-6 ${compact ? 'max-w-none' : ''}`}>
-        <Link href="/" className="group flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-sky-500" aria-label="IELTS Reading — Home">
+        <Link
+          href="/"
+          onClick={(event) => {
+            if (onHomeClick) {
+              event.preventDefault()
+              onHomeClick()
+            } else if (pathname !== '/') {
+              event.preventDefault()
+              router.push('/')
+            }
+          }}
+          className="group flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          aria-label="IELTS Reading — Home"
+        >
           <span className="flex size-10 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-200 transition-transform group-hover:-rotate-3">
             <BookOpen className="size-5" aria-hidden="true" />
           </span>
