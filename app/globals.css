@@ -99,40 +99,40 @@ button, input, select, textarea { font: inherit; }
 .rich-content ul, .rich-content ol { padding-left: 1.5rem; margin: 0.75rem 0; }
 .rich-content li { margin: 0.35rem 0; }
 
-/* Định dạng đồng nhất 13px và giãn dòng gọn cho khung câu hỏi */
-.question-rich-content { color: #1e293b; font-size: 13px; line-height: 1.6; }
+/* Định dạng đồng nhất 15px và giãn dòng gọn cho khung câu hỏi */
+.question-rich-content { color: #1e293b; font-size: 15px; line-height: 1.65; }
 .question-rich-content h1,
 .question-rich-content h2,
 .question-rich-content h3 {
   color: #0f172a;
-  line-height: 1.35;
+  line-height: 1.4;
   font-weight: 700;
-  font-size: 13.5px;
-  margin: 0.65rem 0 0.35rem;
+  font-size: 16px;
+  margin: 0.75rem 0 0.35rem;
 }
-.question-rich-content p { margin: 0.35rem 0; line-height: 1.6; }
+.question-rich-content p { margin: 0.4rem 0; line-height: 1.65; }
 .question-rich-content p:first-child { margin-top: 0; }
 .question-rich-content p:last-child { margin-bottom: 0; }
-.question-rich-content table { width: 100%; border-collapse: collapse; margin: 0.6rem 0; font-size: 13px; }
+.question-rich-content table { width: 100%; border-collapse: collapse; margin: 0.65rem 0; font-size: 15px; }
 .question-rich-content th,
-.question-rich-content td { border: 1px solid #e2e8f0; padding: 0.45rem 0.6rem; vertical-align: top; }
+.question-rich-content td { border: 1px solid #e2e8f0; padding: 0.5rem 0.65rem; vertical-align: top; }
 .question-rich-content th { background: #f8fafc; font-weight: 700; }
 .question-rich-content img { max-width: 100%; height: auto; border-radius: 0.5rem; }
 .question-rich-content blockquote { border-left: 3px solid #7dd3fc; padding-left: 0.75rem; color: #64748b; margin: 0.5rem 0; }
 .question-rich-content mark { border-radius: 0.15rem; padding: 0 0.1rem; }
 .question-rich-content ul,
-.question-rich-content ol { padding-left: 1.25rem; margin: 0.35rem 0; }
-.question-rich-content li { margin: 0.2rem 0; }
+.question-rich-content ol { padding-left: 1.35rem; margin: 0.4rem 0; }
+.question-rich-content li { margin: 0.25rem 0; }
 
 .exam-input {
-  width: 8.5rem;
-  min-width: 7rem;
-  height: 1.75rem;
+  width: 9rem;
+  min-width: 7.5rem;
+  height: 1.9rem;
   border: 1px solid #cbd5e1;
-  border-radius: 0.4rem;
+  border-radius: 0.45rem;
   background: #ffffff;
-  padding: 0.15rem 0.5rem;
-  font-size: 13px;
+  padding: 0.2rem 0.55rem;
+  font-size: 15px;
   color: #0f172a;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -160,14 +160,14 @@ button, input, select, textarea { font: inherit; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  min-width: 1.5rem;
-  height: 1.5rem;
+  width: 1.65rem;
+  min-width: 1.65rem;
+  height: 1.65rem;
   padding: 0 0.3rem;
   border-radius: 9999px;
   background-color: #dbeafe;
   color: #1d4ed8;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   flex-shrink: 0;
