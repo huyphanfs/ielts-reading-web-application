@@ -194,7 +194,34 @@ function RichFormatTextBox({
       img.style.maxWidth = '100%'
 
       editorRef.current?.focus()
-      document.execCommand('insertHTML', false, `${img.outerHTML}<p><br></p>`) onContentChange?.() } catch { setUploadError('Lỗi kết nối khi tải hình ảnh lên.') } finally { setUploadingImage(false) if (fileInputRef.current) fileInputRef.current.value = '' } }  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => { const items = Array.from(e.clipboardData.items \vert{}\vert{} []) const imageItem = items.find((item) => item.type.startsWith('image/')) if (imageItem) { e.preventDefault() const file = imageItem.getAsFile() if (file) void uploadAndInsertImage(file) return }  e.preventDefault() const html = e.clipboardData.getData('text/html') const plain = e.clipboardData.getData('text/plain') const cleanHtml = html ? sanitizeRichPaste(html) : autoFormatOnPaste ? plainTextToHtml(plain) : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
+      document.execCommand('insertHTML', false, `${img.outerHTML}<p><br></p>`)
+      onContentChange?.()
+    } catch {
+      setUploadError('Lỗi kết nối khi tải hình ảnh lên.')
+    } finally {
+      setUploadingImage(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = Array.from(e.clipboardData.items || [])
+    const imageItem = items.find((item) => item.type.startsWith('image/'))
+    if (imageItem) {
+      e.preventDefault()
+      const file = imageItem.getAsFile()
+      if (file) void uploadAndInsertImage(file)
+      return
+    }
+
+    e.preventDefault()
+    const html = e.clipboardData.getData('text/html')
+    const plain = e.clipboardData.getData('text/plain')
+    const cleanHtml = html
+      ? sanitizeRichPaste(html)
+      : autoFormatOnPaste
+        ? plainTextToHtml(plain)
+        : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
     if (cleanHtml) {
       document.execCommand('insertHTML', false, cleanHtml)
       onContentChange?.()
@@ -388,7 +415,53 @@ export function AIParseTestModal({
     const derivedTitle =
       passageTitle.trim() ||
       plainText.split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 120) ||
-      `Passage ${targetPart}`  setSavingPassage(true) try { const basePayload = { title: derivedTitle, content: sanitizeHtml(rawHtml), passage_part: targetPart, is_test_only: false, time_limit: Math.max(1, Number(durationMinutes) \vert{}\vert{} 20), } const fullPayload = { ...basePayload, topic: formatPassageTopics(selectedTopics), }  if (savedPassageId) { let updateRes = await supabase .from('passages') .update(fullPayload) .eq('id', savedPassageId)  if (updateRes.error && updateRes.error.message?.toLowerCase().includes('topic')) { updateRes = await supabase .from('passages') .update(basePayload) .eq('id', savedPassageId)  if (!updateRes.error) { setPassageTitle(derivedTitle) setPassageDone(true) setNotice( 'Đã cập nhật bài đọc, nhưng bảng passages trên Supabase chưa có cột "topic". Hãy chạy SQL: alter table passages add column topic text;', ) return savedPassageId } }  if (updateRes.error) { setError('Không thể cập nhật bài đọc. Kiểm tra quyền admin.') return null } setPassageTitle(derivedTitle) setPassageDone(true) setNotice( selectedTopics.length ? `Đã cập nhật Phần 1 (Bài đọc) với chủ đề: ${selectedTopics.join(', ')}.`
+      `Passage ${targetPart}`
+
+    setSavingPassage(true)
+    try {
+      const basePayload = {
+        title: derivedTitle,
+        content: sanitizeHtml(rawHtml),
+        passage_part: targetPart,
+        is_test_only: false,
+        time_limit: Math.max(1, Number(durationMinutes) || 20),
+      }
+      const fullPayload = {
+        ...basePayload,
+        topic: formatPassageTopics(selectedTopics),
+      }
+
+      if (savedPassageId) {
+        let updateRes = await supabase
+          .from('passages')
+          .update(fullPayload)
+          .eq('id', savedPassageId)
+
+        if (updateRes.error && updateRes.error.message?.toLowerCase().includes('topic')) {
+          updateRes = await supabase
+            .from('passages')
+            .update(basePayload)
+            .eq('id', savedPassageId)
+
+          if (!updateRes.error) {
+            setPassageTitle(derivedTitle)
+            setPassageDone(true)
+            setNotice(
+              'Đã cập nhật bài đọc, nhưng bảng passages trên Supabase chưa có cột "topic". Hãy chạy SQL: alter table passages add column topic text;',
+            )
+            return savedPassageId
+          }
+        }
+
+        if (updateRes.error) {
+          setError('Không thể cập nhật bài đọc. Kiểm tra quyền admin.')
+          return null
+        }
+        setPassageTitle(derivedTitle)
+        setPassageDone(true)
+        setNotice(
+          selectedTopics.length
+            ? `Đã cập nhật Phần 1 (Bài đọc) với chủ đề: ${selectedTopics.join(', ')}.`
             : 'Đã cập nhật nội dung Phần 1 (Bài đọc) lên hệ thống.',
         )
         return savedPassageId
@@ -546,7 +619,25 @@ export function AIParseTestModal({
         if (questionRows.length) {
           const { error: qError } = await supabase.from('questions').insert(questionRows)
           if (qError) {
-            setError(`Lỗi khi lưu danh sách câu hỏi nhóm ${gi + 1}.`) return } totalInserted += questionRows.length } }  await supabase .from('passages') .update({ question_count: totalInserted }) .eq('id', activePassageId)  setParsedGroups(groups) setQuestionsDone(true) setAnswersDone(false) setNotice( appliedTopics.length > 0 ? `Đã trích xuất và lưu ${totalInserted} câu hỏi (Chủ đề: ${appliedTopics.join(', ')}). Tiếp tục nhập Phần 3 (Đáp án & Giải thích).` : `Đã trích xuất và lưu ${totalInserted} câu hỏi cho Phần 2. Tiếp tục nhập Phần 3 (Đáp án & Giải thích).`,
+            setError(`Lỗi khi lưu danh sách câu hỏi nhóm ${gi + 1}.`)
+            return
+          }
+          totalInserted += questionRows.length
+        }
+      }
+
+      await supabase
+        .from('passages')
+        .update({ question_count: totalInserted })
+        .eq('id', activePassageId)
+
+      setParsedGroups(groups)
+      setQuestionsDone(true)
+      setAnswersDone(false)
+      setNotice(
+        appliedTopics.length > 0
+          ? `Đã trích xuất và lưu ${totalInserted} câu hỏi (Chủ đề: ${appliedTopics.join(', ')}). Tiếp tục nhập Phần 3 (Đáp án & Giải thích).`
+          : `Đã trích xuất và lưu ${totalInserted} câu hỏi cho Phần 2. Tiếp tục nhập Phần 3 (Đáp án & Giải thích).`,
       )
     } catch {
       setError('Lỗi kết nối tới server khi phân tích câu hỏi.')
