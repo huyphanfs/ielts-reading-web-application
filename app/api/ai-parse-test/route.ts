@@ -49,6 +49,12 @@ Critical rules:
 - Keep explanations to ONE short Vietnamese sentence each.
 - Be fast and concise. Output only the JSON, no markdown.`
 
+const RETRYABLE_STATUSES = new Set([404, 408, 429, 500, 502, 503, 504])
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders })
 }
@@ -108,54 +114,88 @@ export async function POST(request: NextRequest) {
       : `${SYSTEM_PROMPT}\n\n--- TEXT TO PARSE (passage + questions + answers) ---\n${rawText}`
 
     const configuredModel = process.env.GEMINI_MODEL?.trim()
-    const fallbackModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash']
-    const modelsToTry = Array.from(
-      new Set([configuredModel, ...fallbackModels].filter((m): m is string => Boolean(m))),
-    )
+    const primaryModel = configuredModel || 'gemini-3.8-flash'
+    const fallbackModels = [
+      'gemini-3.8-flash',
+      'gemini-3.8-flash-lite',
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash-lite',
+      'gemini-2.5-flash',
+    ].filter((model) => model !== primaryModel)
+
+    const attempts: Array<{ model: string; delayBeforeMs: number }> = [
+      { model: primaryModel, delayBeforeMs: 0 },
+      { model: primaryModel, delayBeforeMs: 1500 },
+      ...fallbackModels.map((model) => ({ model, delayBeforeMs: 400 })),
+    ]
 
     let lastStatus = 502
     let lastErrorText = ''
     let data: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } | null = null
 
-    for (const model of modelsToTry) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+    for (const attempt of attempts) {
+      if (attempt.delayBeforeMs > 0) {
+        await sleep(attempt.delayBeforeMs)
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${attempt.model}:generateContent`
       const generationConfig: Record<string, unknown> = {
         responseMimeType: 'application/json',
         temperature: 0.1,
       }
-      if (model.startsWith('gemini-2.5')) {
+      if (attempt.model.startsWith('gemini-2.5')) {
         generationConfig.thinkingConfig = { thinkingBudget: 0 }
       }
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: 'user',
-              parts: [{ text: fullPrompt }],
-            },
-          ],
-          generationConfig,
-        }),
-      })
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: fullPrompt }],
+              },
+            ],
+            generationConfig,
+          }),
+          signal: AbortSignal.timeout(25000),
+        })
 
-      if (response.ok) {
-        data = await response.json()
-        break
+        if (response.ok) {
+          data = await response.json()
+          break
+        }
+
+        lastStatus = response.status
+        lastErrorText = await response.text()
+
+        if (!RETRYABLE_STATUSES.has(response.status)) {
+          break
+        }
+      } catch (err) {
+        lastStatus = 504
+        lastErrorText = err instanceof Error ? err.message : 'Timeout khi gọi Gemini API'
       }
-
-      lastStatus = response.status
-      lastErrorText = await response.text()
-
-      if (response.status !== 404) break
     }
 
     if (!data) {
+      if (lastStatus === 503) {
+        return NextResponse.json(
+          { error: 'Máy chủ Gemini API đang quá tải tạm thời (503). Vui lòng đợi vài giây rồi bấm "Phân tích bằng AI" lại.' },
+          { status: 503, headers: corsHeaders },
+        )
+      }
+      if (lastStatus === 429) {
+        return NextResponse.json(
+          { error: 'API Key đã chạm giới hạn lượt gọi tạm thời (429). Vui lòng đợi ít giây rồi thử lại.' },
+          { status: 429, headers: corsHeaders },
+        )
+      }
       return NextResponse.json(
         { error: `Gemini API trả về lỗi ${lastStatus}: ${lastErrorText.slice(0, 260)}` },
         { status: 502, headers: corsHeaders },
