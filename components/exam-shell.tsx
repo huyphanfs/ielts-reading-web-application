@@ -66,9 +66,10 @@ export function ExamShell({
 }) {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const initialSeconds = exam.timeLimitSeconds ?? (exam.passages.length === 1 ? 20 * 60 : 60 * 60)
   const [passageIndex, setPassageIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, UserAnswer>>({})
-  const [secondsLeft, setSecondsLeft] = useState(3600)
+  const [secondsLeft, setSecondsLeft] = useState(initialSeconds)
   const [elapsed, setElapsed] = useState(0)
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
   const [split, setSplit] = useState(60)
@@ -352,7 +353,7 @@ export function ExamShell({
 
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
-      <AppHeader compact />
+      <AppHeader compact onHomeClick={onExit} />
       <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-lg text-slate-600" onClick={onExit} aria-label="Exit test"><ArrowLeft className="size-4" /></Button>
