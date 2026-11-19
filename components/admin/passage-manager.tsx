@@ -222,9 +222,11 @@ export function PassageManager() {
   }
 
   return <div className="space-y-6">
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0 flex-1">
-        <label htmlFor="passage-picker" className="block text-xs font-semibold text-slate-600">Bài đọc trong thư viện</label>
+    <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:justify-between">
+      <div className="min-w-[260px] flex-1">
+        <label htmlFor="passage-picker" className="block text-xs font-semibold leading-4 text-slate-600">
+          Bài đọc trong thư viện
+        </label>
         <div className="relative mt-1.5 max-w-[540px]">
           <select
             id="passage-picker"
@@ -236,11 +238,11 @@ export function PassageManager() {
             <option value="" disabled>{passages.length ? 'Chọn bài đọc' : 'Chưa có bài đọc'}</option>
             {passages.map((passage) => <option key={passage.id} value={passage.id}>Passage {passage.passage_part} · {passage.title}</option>)}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-3 top-3.5 size-4 text-slate-400" />
+          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+      <div className="flex shrink-0 flex-wrap items-center gap-2.5">
         {activePassage && (
           <Button
             type="button"
@@ -252,7 +254,7 @@ export function PassageManager() {
             <Trash2 className="mr-2 size-4" /> Xóa bài đọc &amp; câu hỏi
           </Button>
         )}
-        <Button type="button" variant="outline" onClick={createPassage} className="h-11 rounded-lg border-slate-200 px-3.5">
+        <Button type="button" variant="outline" onClick={createPassage} className="h-11 rounded-lg border-slate-200 bg-white px-3.5">
           <CirclePlus className="mr-2 size-4" /> Tạo bài đọc mới
         </Button>
         <Button type="button" onClick={() => setAiModalOpen(true)} className="h-11 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-4 text-white hover:from-sky-700 hover:to-indigo-700">
