@@ -68,7 +68,7 @@ export function SharedContentAnswers({
     return safe.replace(/\[(\d+)\]/g, (placeholder, rawNumber: string) => {
       const question = group.questions.find((item) => item.question_number === Number(rawNumber))
       if (!question) return placeholder
-      return `<span class="inline-question"><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" placeholder="${question.question_number}" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
+      return `<span class="inline-question"><span class="inline-question-number" aria-hidden="true">${question.question_number}</span><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
     })
   }, [group.shared_content, group.questions])
 
@@ -113,11 +113,10 @@ function QuestionControl({
       <input
         type="text"
         aria-label={`Question ${question.question_number}`}
-        placeholder={String(question.question_number)}
         value={typeof answer === 'string' ? answer : ''}
         onChange={(event) => onAnswer(event.target.value)}
         autoComplete="off"
-        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3.5 text-sm text-slate-900 placeholder:font-bold placeholder:text-slate-400 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+        className="h-9 w-full max-w-xs rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
       />
     )
   }
@@ -125,17 +124,17 @@ function QuestionControl({
   if (group.input_type === 'combo_box') {
     const currentValue = typeof answer === 'string' ? answer : ''
     return (
-      <fieldset className="flex w-full flex-col gap-2">
-        <legend className="sr-only">Chọn một đáp án cho câu {question.question_number}</legend>
+      <fieldset className="flex w-full flex-col gap-1">
+        <legend className="sr-only">Choose one answer for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = currentValue === option.value
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition ${
+              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition ${
                 checked
-                  ? 'border-sky-400 bg-sky-50 font-semibold text-sky-900 shadow-xs'
-                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/70'
+                  ? 'bg-sky-50/80 font-medium text-sky-950'
+                  : 'text-slate-700 hover:bg-slate-100/70'
               }`}
             >
               <input
@@ -148,7 +147,7 @@ function QuestionControl({
               <span
                 aria-hidden="true"
                 className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition ${
-                  checked ? 'border-sky-600 bg-sky-600' : 'border-slate-300 bg-white'
+                  checked ? 'border-sky-600 bg-sky-600' : 'border-slate-400 bg-white'
                 }`}
               >
                 {checked && <span className="size-1.5 rounded-full bg-white" />}
@@ -169,24 +168,30 @@ function QuestionControl({
   const atMax = maxSelection ? selectedCount >= maxSelection : false
 
   return (
-    <div className="w-full space-y-3">
+    <div className="w-full space-y-2">
       {linkedCount > 1 && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">
-          Chọn {linkedCount} phương án (Câu {linkedRange}) · Đã chọn:{' '}
+        <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+          Choose {linkedCount} options (Questions {linkedRange}) · Selected:{' '}
           <span className="tabular-nums">
             {selectedCount}/{linkedCount}
           </span>
         </div>
       )}
-      <fieldset className="flex w-full flex-col gap-2">
-        <legend className="sr-only">Chọn một hoặc nhiều đáp án cho câu {question.question_number}</legend>
+      <fieldset className="flex w-full flex-col gap-1">
+        <legend className="sr-only">Choose one or more answers for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = selected.includes(option.value)
           const disabled = !checked && atMax
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition ${
+                disabled ? 'cursor-not-allowed opacity-50' : ''
+              } ${
+                checked
+                  ? 'bg-sky-50/80 font-medium text-sky-950'
+                  : 'text-slate-700 hover:bg-slate-100/70'
+              }`}
             >
               <input
                 type="checkbox"
@@ -199,7 +204,9 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'}`}
+                className={`flex size-4 shrink-0 items-center justify-center rounded border transition ${
+                  checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-400 bg-white'
+                }`}
               >
                 {checked && <Check className="size-3" />}
               </span>
@@ -237,11 +244,6 @@ export function QuestionGroupCard({
   const isTextInput = group.input_type === 'text_box' || matching
   const hasInlineAnswers = isTextInput && Boolean(group.shared_content?.match(/\[\d+\]/))
   const sharedOptionList = matching ? getSharedOptionList(group) : []
-  const optionLabel = isTextInput
-    ? 'Nhập đáp án đối chiếu'
-    : group.input_type === 'check_box'
-      ? 'Chọn đáp án phù hợp'
-      : 'Chọn một đáp án'
   const totalQuestionsCount = group.questions.reduce(
     (sum, q) =>
       sum + (group.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1 ? q.accepted_answers.length : 1),
@@ -273,34 +275,35 @@ export function QuestionGroupCard({
           </div>
         )}
         {group.shared_content && isTextInput && group.questions.some((question) => !group.shared_content?.includes(`[${question.question_number}]`)) && (
-          <p className="mt-3 text-xs text-slate-500">{optionLabel}</p>
+          <p className="mt-3 text-xs text-slate-500">Enter your matching answer</p>
         )}
         {group.questions.map((question) => {
           const inline = hasInlineAnswers && Boolean(group.shared_content?.includes(`[${question.question_number}]`))
           if (inline) return null
-          const questionOptions = getOptions(question, group)
           const spanCount = group.input_type === 'check_box' && Array.isArray(question.accepted_answers) && question.accepted_answers.length > 1 ? question.accepted_answers.length : 1
           const badgeLabel = spanCount > 1 ? `${question.question_number}-${question.question_number + spanCount - 1}` : String(question.question_number)
 
           if (!question.question_text && isTextInput) {
             return (
-              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2 first:pt-1">
-                <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
+              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 py-2 first:pt-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-100 px-2 text-xs font-bold text-sky-700">{badgeLabel}</span>
+                  <div className="min-w-0 flex-1">
+                    <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
+                  </div>
+                </div>
               </div>
             )
           }
 
           return (
-            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2.5 first:pt-1">
-              <div className="mb-2 flex items-start gap-2.5">
-                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700">{badgeLabel}</span>
-                <div className="min-w-0 flex-1">
-                  {question.question_text && <div className="rich-content text-sm font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />}
-                  {questionOptions.length > 0 && !isTextInput && <p className="mt-1 text-xs text-slate-500">{optionLabel}</p>}
+            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 py-2.5 first:pt-1">
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full border border-sky-200 bg-sky-100 px-2 text-xs font-bold text-sky-700">{badgeLabel}</span>
+                <div className="min-w-0 flex-1 space-y-2">
+                  {question.question_text && <div className="rich-content text-sm font-medium leading-relaxed text-slate-800 [&>p]:my-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />}
+                  <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
                 </div>
-              </div>
-              <div className="w-full">
-                <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
               </div>
             </div>
           )
