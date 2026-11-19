@@ -1,3 +1,23 @@
+export const PASSAGE_TOPICS = [
+  'Science',
+  'Technology',
+  'Environment',
+  'Health',
+  'Psychology',
+  'Animal',
+  'Education',
+  'Culture',
+  'Society',
+  'History',
+  'Geography',
+  'Economy',
+  'Travel',
+  'Literature',
+  'Fine arts',
+] as const
+
+export type PassageTopic = typeof PASSAGE_TOPICS[number]
+
 export type Profile = {
   id: string
   email: string
@@ -13,6 +33,7 @@ export type Passage = {
   passage_part: 1 | 2 | 3
   question_count: number
   is_test_only: boolean | null
+  topic?: string | null
   time_limit: number | null
   created_at: string
 }
