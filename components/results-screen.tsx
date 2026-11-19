@@ -77,7 +77,7 @@ export function ResultsScreen({
   const scoreBase = exam.mode === 'test' && !exam.retryQuestionIds ? 40 : result.totalQuestions
 
   return <main className="min-h-screen bg-slate-50 text-slate-900">
-    <AppHeader />
+    <AppHeader onHomeClick={onReturn} />
     <div className="mx-auto max-w-[1240px] px-4 py-7 sm:px-6 sm:py-10">
       <button type="button" onClick={onReturn} className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-sky-700"><ArrowLeft className="size-4" /> Back to Tests</button>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
