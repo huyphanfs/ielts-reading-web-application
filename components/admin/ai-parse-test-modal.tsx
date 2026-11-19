@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { LoaderCircle, Save, Sparkles, WrapText, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Bold, Italic, Underline, LoaderCircle, Save, Sparkles, WrapText, X } from 'lucide-react'
+import DOMPurify from 'isomorphic-dompurify'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
+import type { LucideIcon } from 'lucide-react'
 
 const supabase = createClient()
 
@@ -25,11 +27,9 @@ type ParsedGroup = {
   questions: ParsedQuestion[]
 }
 
-type ParsedTest = {
-  title: string
-  passage_number: number
+type ParsedResult = {
+  passageTitle: string
   duration_minutes: number
-  passage_content: string
   question_groups: ParsedGroup[]
 }
 
@@ -46,14 +46,142 @@ const QUESTION_TYPES = [
   'Diagram / Table / Flow-chart Completion',
 ] as const
 
-function formatLineBreaks(plain: string): string {
-  return plain
+function sanitizePaste(html: string): string {
+  const clean = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'span', 'div', 'font', 'table', 'tbody', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'a'],
+    FORBID_ATTR: ['style', 'class', 'id', 'srcdoc', 'color', 'face', 'size', 'bgcolor', 'background'],
+  })
+  return clean
+    .replace(/<div>/gi, '<p>')
+    .replace(/<\/div>/gi, '</p>')
+    .replace(/\s+/g, ' ')
+    .replace(/<p>\s*<\/p>/gi, '')
+    .trim()
+}
+
+function plainTextToHtml(text: string): string {
+  return text
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+    .join('')
+}
+
+function htmlToPlainText(html: string): string {
+  if (typeof window === 'undefined') return html.replace(/<[^>]+>/g, ' ')
+  const container = document.createElement('div')
+  container.innerHTML = html
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+  return (container.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function splitPassageFromQuestions(html: string): { passageHtml: string; questionText: string } {
+  const plain = htmlToPlainText(html)
+  const markers = [
+    /IELTS READING PASSAGE \d+/i,
+    /You should spend about/i,
+    /Questions\s+\d+\s*[–-]\s*\d+/i,
+    /Question\s+\d+/i,
+  ]
+  let splitIndex = plain.length
+  for (const marker of markers) {
+    const match = plain.match(marker)
+    if (match && match.index !== undefined) {
+      const questionStart = plain.indexOf('\n', match.index)
+      if (questionStart !== -1 && questionStart < splitIndex) {
+        splitIndex = questionStart
+      }
+    }
+  }
+
+  if (splitIndex === plain.length) {
+    const questionNumMatch = plain.match(/\n\s*\d{1,2}\.\s+[A-Z]/)
+    if (questionNumMatch && questionNumMatch.index !== undefined) {
+      splitIndex = questionNumMatch.index
+    }
+  }
+
+  const passagePlain = plain.slice(0, splitIndex).trim()
+  const questionText = plain.slice(splitIndex).trim()
+
+  if (passagePlain.length < 50) {
+    return { passageHtml: html, questionText: '' }
+  }
+
+  const passageHtml = passagePlain
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const escaped = line
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+      const labelMatch = escaped.match(/^([A-Z])\.\s*(.*)/)
+      if (labelMatch) {
+        return `<p><strong>${labelMatch[1]}</strong> ${labelMatch[2]}</p>`
+      }
+      return `<p>${escaped}</p>`
+    })
+    .join('')
+
+  return { passageHtml, questionText }
+}
+
+function formatParagraphsPreservingFormatting(html: string): string {
+  const temp = document.createElement('div')
+  temp.innerHTML = html
+    .replace(/<\/(p|div|h[1-6]|li)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+
+  const text = temp.textContent ?? ''
+  const lines = text
     .replace(/\r\n/g, '\n')
     .replace(/([a-z0-9.?!)'"")])\s*([A-Z]\.\s+[A-Z])/g, '$1\n\n$2')
     .replace(/\s+(IELTS READING PASSAGE \d+|You should spend about|Questions\s+\d+\s*[–-]\s*\d+|Answer Key|Answers?:)/gi, '\n\n$1')
     .replace(/([.?!])\s+(\d{1,2}\.\s+[A-Z])/g, '$1\n$2')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+    .split(/\n+/)
+    .filter((line) => line.trim())
+
+  const frag = document.createDocumentFragment()
+  lines.forEach((line) => {
+    const p = document.createElement('p')
+    const trimmed = line.trim()
+    const labelMatch = trimmed.match(/^([A-Z])\.\s*(.*)/)
+    if (labelMatch) {
+      const strong = document.createElement('strong')
+      strong.textContent = labelMatch[1]
+      p.appendChild(strong)
+      p.appendChild(document.createTextNode(' ' + labelMatch[2]))
+    } else {
+      p.textContent = trimmed
+    }
+    frag.appendChild(p)
+  })
+
+  const wrapper = document.createElement('div')
+  wrapper.appendChild(frag)
+  return wrapper.innerHTML
+}
+
+function ToolbarButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => { e.preventDefault(); onClick() }}
+      title={label}
+      aria-label={label}
+      className="flex size-8 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-sky-700"
+    >
+      <Icon className="size-4" />
+    </button>
+  )
 }
 
 export function AIParseTestModal({
@@ -65,17 +193,74 @@ export function AIParseTestModal({
   onClose: () => void
   onSaved: (passageId: string) => void
 }) {
-  const [rawContent, setRawContent] = useState('')
+  const [passageHtml, setPassageHtml] = useState('')
   const [parsing, setParsing] = useState(false)
+  const [progressText, setProgressText] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [parsed, setParsed] = useState<ParsedTest | null>(null)
+  const [parsed, setParsed] = useState<ParsedResult | null>(null)
   const [targetPart, setTargetPart] = useState<1 | 2 | 3>(1)
   const [questionTypes, setQuestionTypes] = useState<string[]>([])
   const [autoDetectTypes, setAutoDetectTypes] = useState(true)
   const [questionCount, setQuestionCount] = useState(13)
+  const editorRef = useRef<HTMLDivElement>(null)
+  const progressTimerRef = useRef<number | null>(null)
+  const timeoutRef = useRef<number | null>(null)
 
   if (!open) return null
+
+  useEffect(() => {
+    if (!parsing) {
+      setProgressText('')
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+        progressTimerRef.current = null
+      }
+      return
+    }
+    const steps = ['Đang tách bài đọc...', 'AI đang trích xuất câu hỏi...', 'AI đang phân tích đáp án...']
+    let stepIndex = 0
+    setProgressText(steps[0])
+    progressTimerRef.current = window.setInterval(() => {
+      stepIndex = (stepIndex + 1) % steps.length
+      setProgressText(steps[stepIndex])
+    }, 4000)
+    return () => {
+      if (progressTimerRef.current) {
+        window.clearInterval(progressTimerRef.current)
+        progressTimerRef.current = null
+      }
+    }
+  }, [parsing])
+
+  const syncEditor = useCallback(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    setPassageHtml(editor.innerHTML)
+  }, [])
+
+  const exec = (command: string) => {
+    document.execCommand(command, false)
+    editorRef.current?.focus()
+    syncEditor()
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const html = e.clipboardData.getData('text/html')
+    const plain = e.clipboardData.getData('text/plain')
+    const cleanHtml = html ? sanitizePaste(html) : plainTextToHtml(plain)
+    document.execCommand('insertHTML', false, cleanHtml)
+    syncEditor()
+  }
+
+  const autoFormatParagraphs = () => {
+    const editor = editorRef.current
+    if (!editor) return
+    const formatted = formatParagraphsPreservingFormatting(editor.innerHTML)
+    editor.innerHTML = formatted
+    syncEditor()
+  }
 
   const toggleType = (type: string) => {
     setQuestionTypes((current) =>
@@ -83,39 +268,54 @@ export function AIParseTestModal({
     )
   }
 
-  const autoFormatParagraphs = () => {
-    setRawContent((current) => formatLineBreaks(current))
-  }
-
   const parseTest = async () => {
     setError(null)
     setParsed(null)
-    if (rawContent.trim().length < 20) {
-      setError('Vui lòng dán nội dung (ít nhất 20 ký tự).')
+    const fullHtml = editorRef.current?.innerHTML ?? passageHtml
+    if (!fullHtml || fullHtml.trim().length < 20) {
+      setError('Vui lòng dán nội dung bài thi (ít nhất 20 ký tự).')
       return
     }
+
+    const { passageHtml: extractedPassage, questionText } = splitPassageFromQuestions(fullHtml)
+    setPassageHtml(extractedPassage)
+
+    if (!questionText || questionText.trim().length < 10) {
+      setError('Không tìm thấy phần câu hỏi. Hãy đảm bảo bạn dán cả passage và câu hỏi.')
+      return
+    }
+
     setParsing(true)
+    const controller = new AbortController()
+    timeoutRef.current = window.setTimeout(() => controller.abort(), 45000)
+
     try {
       const res = await fetch('/api/ai-parse-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rawText: rawContent,
-          passagePart: targetPart,
+          questionText,
           questionTypes: autoDetectTypes ? [] : questionTypes,
           questionCount,
         }),
+        signal: controller.signal,
       })
       const data = await res.json()
       if (!res.ok) {
         setError(data.error || 'Không thể phân tích bài thi.')
       } else {
-        setParsed(data.result as ParsedTest)
+        setParsed(data.result as ParsedResult)
       }
-    } catch {
-      setError('Lỗi kết nối tới server.')
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Hết thời gian chờ AI phản hồi (45 giây). Thử lại hoặc rút gọn nội dung.')
+      } else {
+        setError('Lỗi kết nối tới server. Kiểm tra mạng và thử lại.')
+      }
+    } finally {
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current)
+      setParsing(false)
     }
-    setParsing(false)
   }
 
   const saveAll = async () => {
@@ -123,13 +323,12 @@ export function AIParseTestModal({
     setSaving(true)
     setError(null)
     try {
-      const passagePart = (parsed.passage_number || targetPart) as 1 | 2 | 3
       const { data: passageData, error: passageError } = await supabase
         .from('passages')
         .insert({
-          title: parsed.title || `Passage ${passagePart}`,
-          content: sanitizeHtml(parsed.passage_content),
-          passage_part: passagePart,
+          title: parsed.passageTitle || `Passage ${targetPart}`,
+          content: sanitizeHtml(passageHtml),
+          passage_part: targetPart,
           question_count: parsed.question_groups.reduce((sum, g) => sum + g.questions.length, 0),
           is_test_only: false,
           time_limit: parsed.duration_minutes || 20,
@@ -187,7 +386,8 @@ export function AIParseTestModal({
       }
 
       setParsed(null)
-      setRawContent('')
+      setPassageHtml('')
+      if (editorRef.current) editorRef.current.innerHTML = ''
       onSaved(passageId)
       onClose()
     } catch {
@@ -198,7 +398,6 @@ export function AIParseTestModal({
 
   const reset = () => {
     setParsed(null)
-    setRawContent('')
     setError(null)
   }
 
@@ -221,7 +420,7 @@ export function AIParseTestModal({
             </span>
             <div>
               <h2 id="ai-parse-title" className="text-lg font-bold text-slate-900">AI Tự Động Tạo Đề</h2>
-              <p className="text-xs text-slate-500">Dán nội dung bài thi — AI tự động trích xuất passage, câu hỏi, đáp án và giải thích</p>
+              <p className="text-xs text-slate-500">Dán nội dung — AI trích xuất câu hỏi và đáp án nhanh chóng</p>
             </div>
           </div>
           <button
@@ -308,22 +507,36 @@ export function AIParseTestModal({
                   variant="outline"
                   size="sm"
                   onClick={autoFormatParagraphs}
-                  disabled={!rawContent.trim()}
                   className="h-8 rounded-lg border-sky-200 bg-sky-50/70 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                 >
                   <WrapText className="mr-1.5 size-3.5" /> Tự động tách đoạn &amp; xuống dòng
                 </Button>
               </div>
 
-              <textarea
-                value={rawContent}
-                onChange={(e) => setRawContent(e.target.value)}
-                placeholder="Dán nội dung bài thi vào đây..."
-                className="w-full min-h-[260px] max-h-[420px] resize-y overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-50"
-              />
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <ToolbarButton icon={Bold} label="In đậm" onClick={() => exec('bold')} />
+                  <ToolbarButton icon={Italic} label="In nghiêng" onClick={() => exec('italic')} />
+                  <ToolbarButton icon={Underline} label="Gạch chân" onClick={() => exec('underline')} />
+                  <span className="mx-1 h-5 w-px bg-slate-200" />
+                  <span className="px-1 text-xs text-slate-400">Bôi đen văn bản để định dạng</span>
+                </div>
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  role="textbox"
+                  aria-label="Trình soạn thảo nội dung AI"
+                  aria-multiline="true"
+                  onInput={syncEditor}
+                  onPaste={handlePaste}
+                  data-placeholder="Dán nội dung bài thi vào đây (Ctrl+V)..."
+                  className="rich-content min-h-[260px] max-h-[420px] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400 [&:empty]:before:text-slate-400 [&:empty]:before:content-[attr(data-placeholder)]"
+                />
+              </div>
 
               <p className="text-xs text-slate-500">
-                Mẹo: Nhấn Enter để xuống dòng trực tiếp hoặc bấm <strong>Tự động tách đoạn &amp; xuống dòng</strong> sau khi dán văn bản từ PDF.
+                Mẹo: Dán văn bản từ PDF/Word — định dạng <strong>in đậm</strong> và <em>in nghiêng</em> được giữ nguyên. Nhấn <strong>Tự động tách đoạn</strong> để tách rõ các đoạn A, B, C.
               </p>
             </div>
           )}
@@ -333,8 +546,8 @@ export function AIParseTestModal({
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-sky-600">Passage {parsed.passage_number}</p>
-                    <h3 className="mt-1 text-base font-bold text-slate-900">{parsed.title || '(Không có tiêu đề)'}</h3>
+                    <p className="text-xs font-bold uppercase tracking-wide text-sky-600">Passage {targetPart}</p>
+                    <h3 className="mt-1 text-base font-bold text-slate-900">{parsed.passageTitle || '(Không có tiêu đề)'}</h3>
                   </div>
                   <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
                     {parsed.question_groups.reduce((s, g) => s + g.questions.length, 0)} câu · {parsed.duration_minutes || 20} phút
@@ -342,7 +555,7 @@ export function AIParseTestModal({
                 </div>
                 <div
                   className="rich-content mt-3 max-h-48 overflow-y-auto rounded-lg bg-white p-3 text-sm"
-                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(parsed.passage_content) }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(passageHtml) }}
                 />
               </div>
 
@@ -397,7 +610,7 @@ export function AIParseTestModal({
                 className="rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"
               >
                 {parsing ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
-                {parsing ? 'AI đang phân tích...' : 'Phân tích bằng AI'}
+                {parsing ? (progressText || 'AI đang phân tích...') : 'Phân tích bằng AI'}
               </Button>
             </>
           )}

@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+export const maxDuration = 60
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-const DEFAULT_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash']
+const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. You are given the QUESTION SECTION of an IELTS Reading test (the passage has already been separated). Extract ONLY the questions and return a structured JSON object.
 
-const SYSTEM_PROMPT = `You are an expert IELTS Reading test parser. Given raw text (which may be HTML or plain text, and may have missing line breaks from PDF copy-pasting) containing an IELTS Reading passage, questions, and answer keys/explanations, you must extract and return a structured JSON object.
+DO NOT include the passage text. Only extract questions, answers, and metadata.
 
 Return JSON with this exact schema:
 {
-  "title": "string - test title if found, otherwise empty",
-  "passage_number": number (1, 2, or 3),
+  "passageTitle": "string - test title if found, otherwise empty",
   "duration_minutes": number (default 20),
-  "passage_content": "string - clean semantic HTML with paragraphs wrapped in <p> tags. Use <p><strong>A</strong> ...</p> format for paragraph labels. Preserve all text content.",
   "question_groups": [
     {
       "instruction": "string - the instruction text for this group",
@@ -29,35 +29,55 @@ Return JSON with this exact schema:
           "question_text": "string or null",
           "options": ["A. ...", "B. ..."] or null,
           "accepted_answers": ["B"] or ["B","D"] or ["answer text"],
-          "explanation": "Vietnamese explanation string"
+          "explanation": "ONE concise Vietnamese sentence explaining the answer"
         }
       ]
     }
   ]
 }
 
-Important rules:
-- If paragraphs or section labels (like "A.", "B.", "C." or "Questions 1-13") were merged onto one line during copy-paste, intelligently separate them into clean <p> paragraphs in passage_content.
-- For "Choose TWO letters" questions with answers like ["B","D"], create ONE question with both answers in accepted_answers. The system will expand it.
+Critical rules:
+- Do NOT output passage_content. The passage is handled separately.
+- For "Choose TWO letters" with answers like ["B","D"], create ONE question with both answers in accepted_answers.
 - For Summary/Note/Table Completion, use shared_content with [number] placeholders and input_type "text_box".
 - For Matching Headings/Features/Information, use input_type "combo_box" with shared_options listing all heading/feature options.
-- For True/False/Not Given and Yes/No/Not Given, use input_type "combo_box" with no options (the system auto-generates TRUE/FALSE/NOT GIVEN).
-- For Multiple Choice single answer, use input_type "combo_box". For Multiple Choice with "Choose TWO", use input_type "check_box".
-- Always provide Vietnamese explanations for each question.
-- Format passage_content as clean semantic HTML paragraphs.`
+- For True/False/Not Given and Yes/No/Not Given, use input_type "combo_box" with no options.
+- For Multiple Choice single answer, use input_type "combo_box". For "Choose TWO", use input_type "check_box".
+- Keep explanations to ONE short Vietnamese sentence each.
+- Be fast and concise. Output only the JSON, no markdown.`
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders })
 }
 
+function stripMarkdownFences(text: string): string {
+  return text
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim()
+}
+
+function extractJsonObject(text: string): string {
+  const cleaned = stripMarkdownFences(text)
+  try {
+    JSON.parse(cleaned)
+    return cleaned
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start !== -1 && end > start) return cleaned.slice(start, end + 1)
+    return cleaned
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const rawText: string = body?.rawText
+    const questionText: string = body?.questionText
 
-    if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 20) {
+    if (!questionText || typeof questionText !== 'string' || questionText.trim().length < 10) {
       return NextResponse.json(
-        { error: 'Vui lòng dán nội dung bài đọc và câu hỏi (ít nhất 20 ký tự).' },
+        { error: 'Không tìm thấy nội dung câu hỏi. Hãy đảm bảo bạn đã dán cả câu hỏi và đáp án.' },
         { status: 400, headers: corsHeaders },
       )
     }
@@ -70,23 +90,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const passagePart: number = body?.passagePart ?? 1
     const questionTypes: string[] = Array.isArray(body?.questionTypes) ? body.questionTypes : []
     const questionCount: number = typeof body?.questionCount === 'number' ? body.questionCount : 13
 
     const extraInstructions: string[] = []
-    if (passagePart) extraInstructions.push(`- This is Passage ${passagePart}. Set passage_number to ${passagePart}.`)
     if (questionTypes.length) extraInstructions.push(`- Focus on these question types: ${questionTypes.join(', ')}.`)
     if (questionCount) extraInstructions.push(`- Generate exactly ${questionCount} questions total across all question groups.`)
 
     const fullPrompt = extraInstructions.length
-      ? `${SYSTEM_PROMPT}\n\nAdditional requirements:\n${extraInstructions.join('\n')}\n\n--- RAW TEXT TO PARSE ---\n${rawText}`
-      : `${SYSTEM_PROMPT}\n\n--- RAW TEXT TO PARSE ---\n${rawText}`
+      ? `${SYSTEM_PROMPT}\n\nAdditional requirements:\n${extraInstructions.join('\n')}\n\n--- QUESTION TEXT TO PARSE ---\n${questionText}`
+      : `${SYSTEM_PROMPT}\n\n--- QUESTION TEXT TO PARSE ---\n${questionText}`
 
     const configuredModel = process.env.GEMINI_MODEL?.trim()
+    const fastModel = 'gemini-2.5-flash'
     const modelsToTry = configuredModel
-      ? [configuredModel, ...DEFAULT_MODELS.filter((m) => m !== configuredModel)]
-      : DEFAULT_MODELS
+      ? [configuredModel, fastModel]
+      : [fastModel]
 
     let lastStatus = 502
     let lastErrorText = ''
@@ -110,6 +129,7 @@ export async function POST(request: NextRequest) {
           generationConfig: {
             responseMimeType: 'application/json',
             temperature: 0.1,
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       })
@@ -122,10 +142,7 @@ export async function POST(request: NextRequest) {
       lastStatus = response.status
       lastErrorText = await response.text()
 
-      // Chỉ fallback sang model kế tiếp nếu model hiện tại không khả dụng (404)
-      if (response.status !== 404) {
-        break
-      }
+      if (response.status !== 404) break
     }
 
     if (!data) {
@@ -144,31 +161,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const cleaned = text
-      .replace(/^```(?:json)?\s*\n?/i, '')
-      .replace(/\n?```\s*$/i, '')
-      .trim()
+    const jsonStr = extractJsonObject(text)
 
-    let parsed: unknown
+    let parsed: Record<string, unknown>
     try {
-      parsed = JSON.parse(cleaned)
+      parsed = JSON.parse(jsonStr)
     } catch {
-      const start = cleaned.indexOf('{')
-      const end = cleaned.lastIndexOf('}')
-      if (start === -1 || end === -1 || end <= start) {
-        return NextResponse.json(
-          { error: 'Gemini trả về JSON không hợp lệ. Thử lại.' },
-          { status: 502, headers: corsHeaders },
-        )
-      }
-      try {
-        parsed = JSON.parse(cleaned.slice(start, end + 1))
-      } catch {
-        return NextResponse.json(
-          { error: 'Gemini trả về JSON không hợp lệ. Thử lại.' },
-          { status: 502, headers: corsHeaders },
-        )
-      }
+      return NextResponse.json(
+        { error: 'AI trả về JSON không hợp lệ. Thử dán lại nội dung rõ ràng hơn.' },
+        { status: 502, headers: corsHeaders },
+      )
     }
 
     return NextResponse.json({ result: parsed }, { headers: corsHeaders })
