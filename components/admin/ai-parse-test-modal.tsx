@@ -34,9 +34,10 @@ type ParsedResult = {
 }
 
 type AIParseResult = {
-  passageTitle: string
-  durationMinutes: number
-  questionGroups: Array<{
+  passageTitle?: string
+  durationMinutes?: number
+  duration_minutes?: number
+  questionGroups?: Array<{
     groupOrder: number
     instruction: string
     questionCategory: string
@@ -44,7 +45,7 @@ type AIParseResult = {
     sharedContent: string | null
     sharedOptions: string[] | null
   }>
-  questions: Array<{
+  questions?: Array<{
     groupOrder: number
     questionNumber: number
     questionText: string | null
@@ -52,19 +53,41 @@ type AIParseResult = {
     correctAnswer: string[]
     explanation: string
   }>
+  question_groups?: ParsedGroup[]
 }
 
 function mapAIParseResult(result: AIParseResult): ParsedResult {
+  if (Array.isArray(result.question_groups)) {
+    return {
+      passageTitle: result.passageTitle ?? '',
+      duration_minutes: result.duration_minutes ?? result.durationMinutes ?? 20,
+      question_groups: result.question_groups.map((group) => ({
+        instruction: group.instruction ?? '',
+        question_category: group.question_category,
+        input_type: group.input_type,
+        shared_content: group.shared_content ?? null,
+        shared_options: group.shared_options ?? null,
+        questions: (group.questions ?? []).map((question) => ({
+          question_number: question.question_number,
+          question_text: question.question_text ?? null,
+          options: question.options ?? null,
+          accepted_answers: question.accepted_answers ?? [],
+          explanation: question.explanation ?? null,
+        })),
+      })),
+    }
+  }
+
   return {
-    passageTitle: result.passageTitle,
+    passageTitle: result.passageTitle ?? '',
     duration_minutes: result.durationMinutes || 20,
-    question_groups: result.questionGroups.map((group) => ({
+    question_groups: (result.questionGroups ?? []).map((group) => ({
       instruction: group.instruction,
       question_category: group.questionCategory,
       input_type: group.inputType,
       shared_content: group.sharedContent,
       shared_options: group.sharedOptions,
-      questions: result.questions
+      questions: (result.questions ?? [])
         .filter((question) => question.groupOrder === group.groupOrder)
         .map((question) => ({
           question_number: question.questionNumber,
@@ -600,3 +623,29 @@ export function AIParseTestModal({
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          {parsed ? (
+            <>
+              <Button variant="outline" onClick={reset} className="rounded-lg">Phân tích lại</Button>
+              <Button onClick={() => void saveAll()} disabled={saving} className="rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+                {saving ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+                {saving ? 'Đang lưu...' : 'Lưu toàn bộ vào hệ thống'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose} className="rounded-lg">Hủy</Button>
+              <Button
+                onClick={() => void parseTest()}
+                disabled={parsing}
+                className="rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"
+              >
+                {parsing ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Sparkles className="mr-2 size-4" />}
+                {parsing ? (progressText || 'AI đang phân tích...') : 'Phân tích bằng AI'}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
