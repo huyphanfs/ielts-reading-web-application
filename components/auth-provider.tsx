@@ -69,12 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider: 'google',
       options: { redirectTo },
     })
-    if (error) setAuthError('Không thể đăng nhập bằng Google. Vui lòng thử lại sau.')
+    if (error) setAuthError('Unable to sign in with Google. Please try again later.')
   }, [])
 
   const signOut = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
-    if (error) setAuthError('Không thể đăng xuất. Vui lòng thử lại.')
+    if (error) setAuthError('Unable to sign out. Please try again.')
     else {
       setUser(null)
       setProfile(null)
