@@ -16,6 +16,19 @@ const categories = [
   'Summary Completion', 'Note Completion', 'Table Completion', 'Short Answer',
 ]
 
+const DEFAULT_OPTIONS_BY_CATEGORY: Record<string, string[]> = {
+  'True/False/Not Given': ['TRUE', 'FALSE', 'NOT GIVEN'],
+  'Yes/No/Not Given': ['YES', 'NO', 'NOT GIVEN'],
+}
+
+function getInitialSharedOptions(group: ExamGroup): string {
+  if (Array.isArray(group.shared_options) && group.shared_options.length > 0) {
+    return group.shared_options.map(String).join('\n')
+  }
+  const defaults = DEFAULT_OPTIONS_BY_CATEGORY[group.question_category]
+  return defaults ? defaults.join('\n') : ''
+}
+
 type Props = { group: ExamGroup; onChanged: () => void }
 
 export function QuestionGroupManager({ group, onChanged }: Props) {
@@ -25,14 +38,31 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
   const [category, setCategory] = useState(group.question_category)
   const [inputType, setInputType] = useState(group.input_type)
   const [sharedContent, setSharedContent] = useState(group.shared_content ?? '')
-  const [sharedOptions, setSharedOptions] = useState(() => Array.isArray(group.shared_options) ? group.shared_options.map(String).join('\n') : '')
+  const [sharedOptions, setSharedOptions] = useState(() => getInitialSharedOptions(group))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const handleCategoryChange = (nextCategory: string) => {
+    const prevDefaults = DEFAULT_OPTIONS_BY_CATEGORY[category]?.join('\n') ?? ''
+    const nextDefaults = DEFAULT_OPTIONS_BY_CATEGORY[nextCategory]?.join('\n') ?? ''
+
+    setCategory(nextCategory)
+
+    if (nextDefaults) {
+      setInputType('combo_box')
+      if (!sharedOptions.trim() || sharedOptions.trim() === prevDefaults) {
+        setSharedOptions(nextDefaults)
+      }
+    } else if (sharedOptions.trim() === prevDefaults) {
+      setSharedOptions('')
+    }
+  }
 
   const saveGroup = async () => {
     setSaving(true)
     setError(null)
-    const options = sharedOptions.split('\n').map((value) => value.trim()).filter(Boolean)
+    const parsedOptions = sharedOptions.split('\n').map((value) => value.trim()).filter(Boolean)
+    const options = parsedOptions.length ? parsedOptions : (DEFAULT_OPTIONS_BY_CATEGORY[category] ?? [])
     const { error: saveError } = await supabase.from('question_groups').update({
       instruction: sanitizeHtml(instruction),
       question_category: category,
@@ -64,6 +94,11 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
     else onChanged()
   }
 
+  const effectiveSharedOptions = (() => {
+    const parsed = sharedOptions.split('\n').map((value) => value.trim()).filter(Boolean)
+    return parsed.length ? parsed : (DEFAULT_OPTIONS_BY_CATEGORY[category] ?? [])
+  })()
+
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
       <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="flex min-w-0 items-center gap-3 text-left">
@@ -78,19 +113,19 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
     </div>
     {expanded && <div className="space-y-5 p-4 sm:p-5">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="text-xs font-semibold text-slate-600">Phân loại<select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400">{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-600">Phân loại<select value={category} onChange={(event) => handleCategoryChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400">{categories.map((item) => <option key={item}>{item}</option>)}</select></label>
         <label className="text-xs font-semibold text-slate-600">Kiểu trả lời<select value={inputType} onChange={(event) => setInputType(event.target.value as typeof inputType)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"><option value="combo_box">Combo box · một đáp án</option><option value="check_box">Checkbox · nhiều đáp án</option><option value="text_box">Text box · điền từ</option></select></label>
       </div>
       <div><label className="mb-2 block text-xs font-semibold text-slate-600">Hướng dẫn</label><RichTextEditor label={`Hướng dẫn ${group.group_order}`} value={instruction} onChange={setInstruction} minHeight={90} /></div>
       <div><label className="mb-2 block text-xs font-semibold text-slate-600">Nội dung dùng chung <span className="font-normal text-slate-400">— dùng [số câu] để đặt ô nhập</span></label><RichTextEditor label={`Nội dung nhóm ${group.group_order}`} value={sharedContent} onChange={setSharedContent} minHeight={150} /></div>
-      <label className="block text-xs font-semibold text-slate-600">Lựa chọn dùng chung <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng, có thể để trống)</span><textarea value={sharedOptions} onChange={(event) => setSharedOptions(event.target.value)} rows={2} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
+      <label className="block text-xs font-semibold text-slate-600">Lựa chọn dùng chung <span className="font-normal text-slate-400">(mỗi lựa chọn một dòng, tự động điền với T/F/NG và Y/N/NG)</span><textarea value={sharedOptions} onChange={(event) => setSharedOptions(event.target.value)} rows={DEFAULT_OPTIONS_BY_CATEGORY[category] ? 3 : 2} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-400" /></label>
       {error && <p role="alert" className="text-xs text-rose-700">{error}</p>}
       <div className="flex justify-end"><Button onClick={() => void saveGroup()} disabled={saving} size="sm" className="rounded-lg bg-sky-600 text-white hover:bg-sky-700"><Save className="mr-1.5 size-3.5" />{saving ? 'Đang lưu' : 'Lưu nhóm câu hỏi'}</Button></div>
 
       <div className="border-t border-slate-100 pt-4">
         <div className="mb-3 flex items-center justify-between"><h4 className="text-sm font-bold text-slate-900">Câu hỏi trong nhóm</h4><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{group.questions.length}</span></div>
         {editing && <div className="mb-4"><QuestionEditor
-          group={{ ...group, question_category: category, input_type: inputType, shared_options: sharedOptions.split('\n').filter(Boolean) }}
+          group={{ ...group, question_category: category, input_type: inputType, shared_options: effectiveSharedOptions }}
           question={editing === 'new' ? null : editing}
           nextNumber={Math.max(0, ...group.questions.map((question) => question.question_number)) + 1}
           onSaved={() => { setEditing(null); onChanged() }}
