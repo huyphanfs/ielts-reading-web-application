@@ -68,7 +68,7 @@ export function SharedContentAnswers({
     return safe.replace(/\[(\d+)\]/g, (placeholder, rawNumber: string) => {
       const question = group.questions.find((item) => item.question_number === Number(rawNumber))
       if (!question) return placeholder
-      return `<span class="inline-question"><label for="question-${question.id}">${question.question_number}</label><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" aria-label="Câu ${question.question_number}" autocomplete="off" /></span>`
+      return `<span class="inline-question"><label for="question-${question.id}" class="sr-only">Question ${question.question_number}</label><input id="question-${question.id}" class="exam-input inline-question-input" data-question-id="${question.id}" type="text" placeholder="${question.question_number}" aria-label="Question ${question.question_number}" autocomplete="off" /></span>`
     })
   }, [group.shared_content, group.questions])
 
@@ -112,12 +112,12 @@ function QuestionControl({
     return (
       <input
         type="text"
-        aria-label={`Đáp án câu ${question.question_number}`}
-        placeholder={matching ? 'Nhập ký tự / đáp án đối chiếu...' : 'Nhập câu trả lời...'}
+        aria-label={`Question ${question.question_number}`}
+        placeholder={matching ? `Question ${question.question_number}` : String(question.question_number)}
         value={typeof answer === 'string' ? answer : ''}
         onChange={(event) => onAnswer(event.target.value)}
         autoComplete="off"
-        className="h-10 w-full max-w-[340px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3.5 text-sm text-slate-900 placeholder:font-bold placeholder:text-slate-500 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
       />
     )
   }
@@ -125,14 +125,14 @@ function QuestionControl({
   if (group.input_type === 'combo_box') {
     const currentValue = typeof answer === 'string' ? answer : ''
     return (
-      <fieldset className="flex flex-col gap-2">
-        <legend className="sr-only">Chọn một đáp án cho câu {question.question_number}</legend>
+      <fieldset className="flex w-full flex-col gap-2">
+        <legend className="sr-only">Choose an answer for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = currentValue === option.value
           return (
             <label
               key={option.value}
-              className={`relative inline-flex cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition ${
+              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition ${
                 checked
                   ? 'border-sky-400 bg-sky-50 font-semibold text-sky-900 shadow-xs'
                   : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50/70'
@@ -169,24 +169,24 @@ function QuestionControl({
   const atMax = maxSelection ? selectedCount >= maxSelection : false
 
   return (
-    <div className="space-y-3">
+    <div className="w-full space-y-3">
       {linkedCount > 1 && (
         <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700">
-          Chọn {linkedCount} phương án (Câu {linkedRange}) · Đã chọn:{' '}
+          Choose {linkedCount} options (Questions {linkedRange}) · Selected:{' '}
           <span className="tabular-nums">
             {selectedCount}/{linkedCount}
           </span>
         </div>
       )}
-      <fieldset className="flex flex-col gap-2">
-        <legend className="sr-only">Chọn một hoặc nhiều đáp án cho câu {question.question_number}</legend>
+      <fieldset className="flex w-full flex-col gap-2">
+        <legend className="sr-only">Choose options for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = selected.includes(option.value)
           const disabled = !checked && atMax
           return (
             <label
               key={option.value}
-              className={`relative inline-flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
+              className={`relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}
             >
               <input
                 type="checkbox"
@@ -242,19 +242,24 @@ export function QuestionGroupCard({
     : group.input_type === 'check_box'
       ? 'Chọn đáp án phù hợp'
       : 'Chọn một đáp án'
+  const totalQuestionsCount = group.questions.reduce(
+    (sum, q) =>
+      sum + (group.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1 ? q.accepted_answers.length : 1),
+    0,
+  )
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby={`group-${group.id}`}>
-      <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+    <section className="w-full rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby={`group-${group.id}`}>
+      <div className="border-b border-slate-100 px-4 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-sky-700">{group.question_category}</span>
-          <span className="text-xs text-slate-500">
-            {group.questions.reduce((sum, q) => sum + (group.input_type === 'check_box' && Array.isArray(q.accepted_answers) && q.accepted_answers.length > 1 ? q.accepted_answers.length : 1), 0)} câu
+          <span className="text-xs font-medium text-slate-500">
+            {totalQuestionsCount} {totalQuestionsCount === 1 ? 'question' : 'questions'}
           </span>
         </div>
-        {group.instruction && <div id={`group-${group.id}`} className="rich-content mt-3 text-sm font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
+        {group.instruction && <div id={`group-${group.id}`} className="rich-content mt-2.5 text-sm font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
       </div>
-      <div className="space-y-1 p-4 sm:p-5">
+      <div className="space-y-1 p-4">
         {group.shared_content && <SharedContentAnswers group={group} answers={answers} onAnswer={onAnswer} />}
         {sharedOptionList.length > 0 && (
           <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3.5">
@@ -276,8 +281,17 @@ export function QuestionGroupCard({
           const questionOptions = getOptions(question, group)
           const spanCount = group.input_type === 'check_box' && Array.isArray(question.accepted_answers) && question.accepted_answers.length > 1 ? question.accepted_answers.length : 1
           const badgeLabel = spanCount > 1 ? `${question.question_number}-${question.question_number + spanCount - 1}` : String(question.question_number)
+
+          if (!question.question_text && isTextInput) {
+            return (
+              <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2 first:pt-1">
+                <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
+              </div>
+            )
+          }
+
           return (
-            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-3 first:pt-1">
+            <div key={question.id} id={`question-${question.id}`} className="scroll-mt-24 rounded-lg py-2.5 first:pt-1">
               <div className="mb-2 flex items-start gap-3">
                 <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-bold text-slate-700">{badgeLabel}</span>
                 <div className="min-w-0 flex-1">
