@@ -27,8 +27,13 @@ import { RichTextEditor } from '@/components/admin/rich-text-editor'
 import { AIParseTestModal } from '@/components/admin/ai-parse-test-modal'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
-import { PASSAGE_TOPICS } from '@/lib/types'
-import type { ExamGroup, Passage, Question, QuestionGroup } from '@/lib/types'
+import {
+  MAX_PASSAGE_TOPICS,
+  PASSAGE_TOPICS,
+  formatPassageTopics,
+  parsePassageTopics,
+} from '@/lib/types'
+import type { ExamGroup, Passage, PassageTopic, Question, QuestionGroup } from '@/lib/types'
 
 const supabase = createClient()
 const PAGE_SIZE = 10
@@ -43,7 +48,7 @@ export function PassageManager() {
   const [title, setTitle] = useState('')
   const [part, setPart] = useState<1 | 2 | 3>(1)
   const [testOnly, setTestOnly] = useState(false)
-  const [topic, setTopic] = useState('')
+  const [selectedTopics, setSelectedTopics] = useState<PassageTopic[]>([])
   const [content, setContent] = useState('')
   const [timeLimit, setTimeLimit] = useState('20')
 
@@ -126,11 +131,14 @@ export function PassageManager() {
       if (filterMode === 'practice' && p.is_test_only === true) return false
       if (filterMode === 'test' && p.is_test_only !== true) return false
       if (filterPart !== 'all' && p.passage_part !== filterPart) return false
+
+      const passageTopics = parsePassageTopics(p.topic)
       if (filterTopic === 'unassigned') {
-        if (p.topic && p.topic.trim()) return false
+        if (passageTopics.length > 0) return false
       } else if (filterTopic !== 'all') {
-        if ((p.topic ?? '') !== filterTopic) return false
+        if (!passageTopics.includes(filterTopic as PassageTopic)) return false
       }
+
       const eff = questionStatsByPassage[p.id]?.effectiveCount ?? 0
       const isReady = eff === 13 || eff === 14
       if (filterStatus === 'ready' && !isReady) return false
@@ -197,7 +205,7 @@ export function PassageManager() {
       setTitle('')
       setPart(1)
       setTestOnly(false)
-      setTopic('')
+      setSelectedTopics([])
       setContent('')
       setTimeLimit('20')
       return
@@ -205,10 +213,22 @@ export function PassageManager() {
     setTitle(activePassage.title)
     setPart(activePassage.passage_part)
     setTestOnly(Boolean(activePassage.is_test_only))
-    setTopic(activePassage.topic ?? '')
+    setSelectedTopics(parsePassageTopics(activePassage.topic))
     setContent(activePassage.content ?? '')
     setTimeLimit(String(activePassage.time_limit ?? 20))
   }, [activePassage])
+
+  const toggleFormTopic = (topicItem: PassageTopic) => {
+    setSelectedTopics((current) => {
+      if (current.includes(topicItem)) {
+        return current.filter((t) => t !== topicItem)
+      }
+      if (current.length >= MAX_PASSAGE_TOPICS) {
+        return current
+      }
+      return [...current, topicItem]
+    })
+  }
 
   const selectPassageFromLibrary = (passageId: string) => {
     setSelectedPassageId(passageId)
@@ -242,7 +262,7 @@ export function PassageManager() {
     }
     const fullPayload = {
       ...basePayload,
-      topic: topic.trim() || null,
+      topic: formatPassageTopics(selectedTopics),
     }
 
     let result = activePassage
@@ -279,7 +299,7 @@ export function PassageManager() {
     setTitle('')
     setPart(1)
     setTestOnly(false)
-    setTopic('')
+    setSelectedTopics([])
     setContent('')
     setTimeLimit('20')
     setNotice(null)
@@ -432,490 +452,4 @@ export function PassageManager() {
           </select>
         </div>
 
-        <div className={compactDrawer ? 'lg:col-span-6' : 'lg:col-span-2'}>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'ready' | 'incomplete')}
-            aria-label="Lọc theo trạng thái câu hỏi"
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-sky-400"
-          >
-            <option value="all">Câu hỏi: Tất cả</option>
-            <option value="ready">Đạt chuẩn (13–14 câu)</option>
-            <option value="incomplete">Chưa đủ câu</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Thanh tóm tắt kết quả lọc */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <span>
-          Hiển thị <strong className="text-slate-800">{filteredPassages.length}</strong> / {passages.length} bài đọc
-        </span>
-        {hasActiveFilters && (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:text-sky-900"
-          >
-            <FilterX className="size-3.5" /> Xóa bộ lọc
-          </button>
-        )}
-      </div>
-
-      {/* Bảng dữ liệu thư viện */}
-      {paginatedPassages.length ? (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[680px] border-collapse text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5">Tiêu đề bài đọc</th>
-                <th className="px-3 py-2.5 text-center">Passage</th>
-                <th className="px-3 py-2.5">Chủ đề</th>
-                <th className="px-3 py-2.5 text-center">Phân loại</th>
-                <th className="px-3 py-2.5 text-center">Số câu</th>
-                <th className="px-4 py-2.5 text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {paginatedPassages.map((p) => {
-                const isSelected = p.id === selectedPassageId
-                const effCount = questionStatsByPassage[p.id]?.effectiveCount ?? 0
-                const isReady = effCount === 13 || effCount === 14
-                const isTestOnly = p.is_test_only === true
-
-                return (
-                  <tr
-                    key={p.id}
-                    onClick={() => selectPassageFromLibrary(p.id)}
-                    className={`cursor-pointer transition ${
-                      isSelected
-                        ? 'bg-sky-50/90 hover:bg-sky-50'
-                        : 'hover:bg-slate-50/80'
-                    }`}
-                  >
-                    <td className="max-w-[300px] px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`size-2 shrink-0 rounded-full ${
-                            isSelected ? 'bg-sky-600' : 'bg-transparent'
-                          }`}
-                        />
-                        <span className={`truncate font-semibold ${isSelected ? 'text-sky-900' : 'text-slate-800'}`}>
-                          {p.title}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700">
-                        P{p.passage_part}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {p.topic ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-indigo-100 bg-indigo-50/70 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-                          <Tag className="size-3" /> {p.topic}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      {isTestOnly ? (
-                        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                          Test
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
-                          Practice
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                          isReady
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {effCount} câu
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="inline-flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => selectPassageFromLibrary(p.id)}
-                          className={`h-7 rounded-md px-2 text-xs ${
-                            isSelected
-                              ? 'bg-sky-600 text-white hover:bg-sky-700'
-                              : 'text-sky-700 hover:bg-sky-50'
-                          }`}
-                        >
-                          {isSelected ? 'Đang mở' : 'Chọn sửa'}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={saving}
-                          onClick={() => void deleteTargetPassage(p)}
-                          aria-label={`Xóa ${p.title}`}
-                          className="size-7 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
-          <Library className="mx-auto size-6 text-slate-400" />
-          <p className="mt-2 text-sm font-semibold text-slate-700">Không tìm thấy bài đọc phù hợp</p>
-          <p className="mt-1 text-xs text-slate-500">Thử thay đổi từ khóa tìm kiếm hoặc xóa bộ lọc hiện tại.</p>
-        </div>
-      )}
-
-      {/* Phân trang */}
-      {filteredPassages.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between pt-1 text-xs text-slate-600">
-          <span>
-            Trang <strong>{safePage}</strong> / {totalPages}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={safePage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="h-8 rounded-lg px-2.5 text-xs"
-            >
-              <ChevronLeft className="mr-1 size-3.5" /> Trước
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={safePage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="h-8 rounded-lg px-2.5 text-xs"
-            >
-              Sau <ChevronRight className="ml-1 size-3.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-
-  return (
-    <div className="space-y-6">
-      {/* ================================================================= */}
-      {/* KHỐI 1: THANH ĐIỀU KHIỂN THƯ VIỆN & BẢNG THƯ VIỆN THU GỌN         */}
-      {/* ================================================================= */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm">
-              <Library className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-bold text-slate-900">
-                  Thư viện bài đọc ({librarySummary.total})
-                </h2>
-                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                  Practice: {librarySummary.practiceCount}
-                </span>
-                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                  Test: {librarySummary.testCount}
-                </span>
-              </div>
-              <p className="mt-0.5 truncate text-xs text-slate-500">
-                {activePassage
-                  ? `Đang mở: Passage ${activePassage.passage_part} · ${activePassage.title}`
-                  : 'Đang tạo bài đọc mới'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setTableOpen((prev) => !prev)}
-              className="h-9 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
-            >
-              <FolderOpen className="mr-1.5 size-3.5 text-sky-600" />
-              {tableOpen ? 'Thu gọn bảng' : 'Mở bảng thư viện'}
-              {tableOpen ? <ChevronUp className="ml-1.5 size-3.5" /> : <ChevronDown className="ml-1.5 size-3.5" />}
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setDrawerOpen(true)}
-              className="h-9 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
-            >
-              <PanelRightOpen className="mr-1.5 size-3.5 text-sky-600" />
-              Ngăn kéo nhanh
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={createPassage}
-              className="h-9 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold"
-            >
-              <CirclePlus className="mr-1.5 size-3.5" /> Tạo bài đọc mới
-            </Button>
-
-            <Button
-              type="button"
-              onClick={() => setAiModalOpen(true)}
-              className="h-9 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-3.5 text-xs font-semibold text-white hover:from-sky-700 hover:to-indigo-700"
-            >
-              <Sparkles className="mr-1.5 size-3.5" /> Soạn bài &amp; câu hỏi bằng AI
-            </Button>
-          </div>
-        </div>
-
-        {tableOpen && !loading && (
-          <div className="p-4 sm:p-5">{renderLibraryBrowser(false)}</div>
-        )}
-      </section>
-
-      {/* Slide-over Library Drawer (Ngăn kéo thư viện trượt từ bên phải) */}
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 backdrop-blur-xs"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setDrawerOpen(false)
-          }}
-        >
-          <aside
-            role="dialog"
-            aria-modal="true"
-            aria-label="Ngăn kéo thư viện bài đọc"
-            className="flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Ngăn kéo Thư viện Bài đọc</h3>
-                <p className="text-xs text-slate-500">
-                  Tìm kiếm, lọc theo chủ đề hoặc phân loại và bấm chọn để chuyển nhanh bài đọc
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setDrawerOpen(false)}
-                aria-label="Đóng ngăn kéo thư viện"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5">{renderLibraryBrowser(true)}</div>
-          </aside>
-        </div>
-      )}
-
-      <AIParseTestModal
-        open={aiModalOpen}
-        onClose={() => setAiModalOpen(false)}
-        onSaved={(passageId) => {
-          void loadData(passageId).then(() => {
-            setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra và lưu lại nếu cần.')
-            setError(null)
-          })
-        }}
-      />
-
-      {loading && (
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
-          <LoaderCircle className="size-4 animate-spin" /> Đang tải thư viện…
-        </div>
-      )}
-      {error && (
-        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          {notice}
-        </div>
-      )}
-
-      {/* ================================================================= */}
-      {/* KHỐI 2: FORM BIÊN TẬP THÔNG TIN BÀI ĐỌC ĐANG MỞ                   */}
-      {/* ================================================================= */}
-      {!loading && (
-        <form onSubmit={(event) => void savePassage(event)} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
-            <div className="flex items-start gap-3">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
-                <BookOpen className="size-5" />
-              </span>
-              <div>
-                <h3 className="font-bold text-slate-900">{activePassage ? 'Thông tin bài đọc' : 'Bài đọc mới'}</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Phân loại <strong>Practice</strong> chỉ dùng cho luyện tập (Test không dùng bài này); phân loại <strong>Test</strong> chỉ dùng để ghép đề thi.
-                </p>
-              </div>
-            </div>
-            <div
-              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold ${
-                countValid
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
-              }`}
-            >
-              <span className={`size-2 rounded-full ${countValid ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-              {attachedQuestions.length} câu {countValid ? '· Đạt cấu hình' : '· Cần 13 hoặc 14 câu'}
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <label className="text-xs font-semibold text-slate-600 md:col-span-2">
-              Tiêu đề
-              <input
-                required
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Ví dụ: The History of Paper"
-                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-50"
-              />
-            </label>
-
-            <label className="text-xs font-semibold text-slate-600">
-              Passage
-              <select
-                value={part}
-                onChange={(event) => setPart(Number(event.target.value) as 1 | 2 | 3)}
-                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"
-              >
-                {[1, 2, 3].map((value) => (
-                  <option key={value} value={value}>
-                    Passage {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-xs font-semibold text-slate-600">
-              Chủ đề (Topic)
-              <select
-                value={topic}
-                onChange={(event) => setTopic(event.target.value)}
-                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"
-              >
-                <option value="">-- Chọn chủ đề --</option>
-                {PASSAGE_TOPICS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="text-xs font-semibold text-slate-600 md:col-span-2">
-              Phân loại
-              <select
-                value={testOnly ? 'test' : 'practice'}
-                onChange={(event) => setTestOnly(event.target.value === 'test')}
-                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"
-              >
-                <option value="practice">Practice (Chỉ dùng luyện tập — Test không dùng bài này)</option>
-                <option value="test">Test (Chỉ dùng cho đề Test)</option>
-              </select>
-            </label>
-
-            <label className="text-xs font-semibold text-slate-600 md:col-span-2">
-              Thời gian luyện tập (phút)
-              <input
-                type="number"
-                min="1"
-                max="90"
-                value={timeLimit}
-                onChange={(event) => setTimeLimit(event.target.value)}
-                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
-              />
-            </label>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-600">Nội dung bài đọc</label>
-            <RichTextEditor label="Nội dung bài đọc" value={content} onChange={setContent} minHeight={300} />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            {activePassage ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void deleteTargetPassage(activePassage)}
-                disabled={saving}
-                className="rounded-lg text-rose-700 hover:bg-rose-50"
-              >
-                <Trash2 className="mr-2 size-4" />
-                Xóa toàn bộ bài đọc &amp; câu hỏi
-              </Button>
-            ) : (
-              <span className="text-xs text-slate-500">Lưu bài đọc trước khi thêm nhóm câu hỏi.</span>
-            )}
-            <Button type="submit" disabled={saving || !title.trim()} className="h-10 rounded-lg bg-sky-600 px-4 text-white hover:bg-sky-700">
-              <Save className="mr-2 size-4" />
-              {saving ? 'Đang lưu' : activePassage ? 'Lưu thay đổi' : 'Tạo bài đọc'}
-            </Button>
-          </div>
-        </form>
-      )}
-
-      {/* ================================================================= */}
-      {/* KHỐI 3: QUẢN LÝ NHÓM CÂU HỎI CỦA BÀI ĐỌC ĐANG MỞ                  */}
-      {/* ================================================================= */}
-      {activePassage && (
-        <section aria-labelledby="groups-heading" className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-600">Câu hỏi</p>
-              <h3 id="groups-heading" className="mt-1 text-lg font-bold text-slate-900">
-                Question Groups
-              </h3>
-              <p className="mt-1 text-xs text-slate-500">Nhóm hướng dẫn, nội dung dùng chung và định dạng đáp án.</p>
-            </div>
-            <Button onClick={() => void addGroup()} className="h-9 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
-              <Plus className="mr-1.5 size-4" />
-              Thêm Question Group
-            </Button>
-          </div>
-          {attachedGroups.length ? (
-            attachedGroups.map((group) => (
-              <QuestionGroupManager key={group.id} group={group} onChanged={() => void refreshAndSyncCount()} />
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
-              <p className="text-sm font-semibold text-slate-800">Chưa có Question Group</p>
-              <p className="mt-1 text-xs text-slate-500">Tạo nhóm đầu tiên để thêm câu hỏi cho bài đọc này.</p>
-              <Button onClick={() => void addGroup()} variant="outline" size="sm" className="mt-4 rounded-lg">
-                <Plus className="mr-1.5 size-3.5" />
-                Thêm nhóm đầu tiên
-              </Button>
-            </div>
-          )}
-        </section>
-      )}
-    </div>
-  )
-}
+        <div className={compactDrawer ? 'lg:col-span-6' : 'lg:col-span
