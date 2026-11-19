@@ -11,8 +11,8 @@ import { createClient } from '@/lib/supabase/client'
 import { loadExamDefinition } from '@/lib/exam-data'
 import { gradeExam } from '@/lib/grading'
 import { buildDemoExamDefinition, DEMO_TEST_CARD, DEMO_TEST_TITLE } from '@/lib/demo-test'
-import { PASSAGE_TOPICS } from '@/lib/types'
-import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
+import { PASSAGE_TOPICS, parsePassageTopics } from '@/lib/types'
+import type { ExamDefinition, GradingSummary, Passage, PassageTopic, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
 
 const supabase = createClient()
 
@@ -108,7 +108,7 @@ export function ReadingApp() {
   const filteredPracticePassages = useMemo(() => {
     const q = practiceSearch.trim().toLowerCase()
     return practicePassages.filter((p) => {
-      if (practiceTopicFilter !== 'all' && (p.topic ?? '') !== practiceTopicFilter) return false
+      if (practiceTopicFilter !== 'all' && !parsePassageTopics(p.topic).includes(practiceTopicFilter as PassageTopic)) return false
       if (q && !p.title.toLowerCase().includes(q)) return false
       return true
     })
@@ -629,13 +629,16 @@ export function ReadingApp() {
                           className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <span className="min-w-0">
-                            <span className="flex items-center gap-2">
+                            <span className="flex flex-wrap items-center gap-1.5">
                               <span className="truncate text-sm font-semibold text-slate-800">{passage.title}</span>
-                              {passage.topic && (
-                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
-                                  <Tag className="size-2.5" /> {passage.topic}
+                              {parsePassageTopics(passage.topic).map((topicItem) => (
+                                <span
+                                  key={topicItem}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                                >
+                                  <Tag className="size-2.5" /> {topicItem}
                                 </span>
-                              )}
+                              ))}
                             </span>
                             <span className="mt-0.5 block text-xs text-slate-500">
                               Passage {passage.passage_part} · {count} {count === 1 ? 'question' : 'questions'} · {singlePracticeTimed ? '20 min' : 'Untimed'}
