@@ -232,7 +232,7 @@ export function PassageManager() {
             id="passage-picker"
             value={selectedPassageId}
             onChange={(event) => { setSelectedPassageId(event.target.value); setNotice(null); setError(null) }}
-            className="h-11 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-sky-400"
+            className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-9 text-sm font-medium text-slate-800 outline-none focus:border-sky-400"
             disabled={!passages.length}
           >
             <option value="" disabled>{passages.length ? 'Chọn bài đọc' : 'Chưa có bài đọc'}</option>
@@ -249,15 +249,15 @@ export function PassageManager() {
             variant="outline"
             onClick={() => void deletePassage()}
             disabled={saving}
-            className="h-11 rounded-lg border-rose-200 bg-rose-50/70 px-3.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+            className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border-rose-200 bg-rose-50/70 px-3.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
           >
             <Trash2 className="mr-2 size-4" /> Xóa bài đọc &amp; câu hỏi
           </Button>
         )}
-        <Button type="button" variant="outline" onClick={createPassage} className="h-11 rounded-lg border-slate-200 bg-white px-3.5">
+        <Button type="button" variant="outline" onClick={createPassage} className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border-slate-200 bg-white px-3.5">
           <CirclePlus className="mr-2 size-4" /> Tạo bài đọc mới
         </Button>
-        <Button type="button" onClick={() => setAiModalOpen(true)} className="h-11 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-4 text-white hover:from-sky-700 hover:to-indigo-700">
+        <Button type="button" onClick={() => setAiModalOpen(true)} className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-4 text-white hover:from-sky-700 hover:to-indigo-700">
           <Sparkles className="mr-2 size-4" /> Soạn bài &amp; câu hỏi bằng AI
         </Button>
       </div>

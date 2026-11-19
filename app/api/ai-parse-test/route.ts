@@ -70,6 +70,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const passagePart: number = body?.passagePart ?? 1
+    const questionTypes: string[] = Array.isArray(body?.questionTypes) ? body.questionTypes : []
+    const questionCount: number = typeof body?.questionCount === 'number' ? body.questionCount : 13
+
+    const extraInstructions: string[] = []
+    if (passagePart) extraInstructions.push(`- This is Passage ${passagePart}. Set passage_number to ${passagePart}.`)
+    if (questionTypes.length) extraInstructions.push(`- Focus on these question types: ${questionTypes.join(', ')}.`)
+    if (questionCount) extraInstructions.push(`- Generate exactly ${questionCount} questions total across all question groups.`)
+
+    const fullPrompt = extraInstructions.length
+      ? `${SYSTEM_PROMPT}\n\nAdditional requirements:\n${extraInstructions.join('\n')}\n\n--- RAW TEXT TO PARSE ---\n${rawText}`
+      : `${SYSTEM_PROMPT}\n\n--- RAW TEXT TO PARSE ---\n${rawText}`
+
     const configuredModel = process.env.GEMINI_MODEL?.trim()
     const modelsToTry = configuredModel
       ? [configuredModel, ...DEFAULT_MODELS.filter((m) => m !== configuredModel)]
@@ -91,7 +104,7 @@ export async function POST(request: NextRequest) {
           contents: [
             {
               role: 'user',
-              parts: [{ text: `${SYSTEM_PROMPT}\n\n--- RAW TEXT TO PARSE ---\n${rawText}` }],
+              parts: [{ text: fullPrompt }],
             },
           ],
           generationConfig: {
@@ -131,14 +144,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const cleaned = text
+      .replace(/^```(?:json)?\s*\n?/i, '')
+      .replace(/\n?```\s*$/i, '')
+      .trim()
+
     let parsed: unknown
     try {
-      parsed = JSON.parse(text)
+      parsed = JSON.parse(cleaned)
     } catch {
-      return NextResponse.json(
-        { error: 'Gemini trả về JSON không hợp lệ. Thử lại.' },
-        { status: 502, headers: corsHeaders },
-      )
+      const start = cleaned.indexOf('{')
+      const end = cleaned.lastIndexOf('}')
+      if (start === -1 || end === -1 || end <= start) {
+        return NextResponse.json(
+          { error: 'Gemini trả về JSON không hợp lệ. Thử lại.' },
+          { status: 502, headers: corsHeaders },
+        )
+      }
+      try {
+        parsed = JSON.parse(cleaned.slice(start, end + 1))
+      } catch {
+        return NextResponse.json(
+          { error: 'Gemini trả về JSON không hợp lệ. Thử lại.' },
+          { status: 502, headers: corsHeaders },
+        )
+      }
     }
 
     return NextResponse.json({ result: parsed }, { headers: corsHeaders })

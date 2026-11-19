@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { LoaderCircle, Save, Sparkles, WrapText, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { RichTextEditor } from '@/components/admin/rich-text-editor'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 
@@ -34,40 +33,27 @@ type ParsedTest = {
   question_groups: ParsedGroup[]
 }
 
-function htmlToPlainText(html: string): string {
-  if (typeof window === 'undefined') return html.replace(/<[^>]+>/g, ' ')
-  const container = document.createElement('div')
-  container.innerHTML = html
-    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-  return (container.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim()
-}
+const QUESTION_TYPES = [
+  'True/False/Not Given',
+  'Yes/No/Not Given',
+  'Multiple Choice',
+  'Matching Headings',
+  'Matching Information',
+  'Matching Features',
+  'Sentence Completion',
+  'Summary Completion',
+  'Short Answer',
+  'Diagram / Table / Flow-chart Completion',
+] as const
 
-function formatLineBreaksHtml(html: string): string {
-  const plain = htmlToPlainText(html)
-  if (!plain) return ''
-
-  const normalized = plain
+function formatLineBreaks(plain: string): string {
+  return plain
     .replace(/\r\n/g, '\n')
-    // Tách nhãn đoạn A., B., C. nếu bị dính sát chữ phía trước (vd: "CityA. It")
-    .replace(/([a-z0-9.?!)'"”])\s*([A-Z]\.\s+[A-Z])/g, '$1\n\n$2')
-    // Tách dòng trước các mốc IELTS READING / Questions / Answer Key
+    .replace(/([a-z0-9.?!)'"")])\s*([A-Z]\.\s+[A-Z])/g, '$1\n\n$2')
     .replace(/\s+(IELTS READING PASSAGE \d+|You should spend about|Questions\s+\d+\s*[–-]\s*\d+|Answer Key|Answers?:)/gi, '\n\n$1')
-    // Tách dòng trước số thứ tự câu hỏi (1. / 14. / 27.)
     .replace(/([.?!])\s+(\d{1,2}\.\s+[A-Z])/g, '$1\n$2')
-
-  return normalized
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const escaped = line
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-      return `<p>${escaped}</p>`
-    })
-    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export function AIParseTestModal({
@@ -84,18 +70,27 @@ export function AIParseTestModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [parsed, setParsed] = useState<ParsedTest | null>(null)
+  const [targetPart, setTargetPart] = useState<1 | 2 | 3>(1)
+  const [questionTypes, setQuestionTypes] = useState<string[]>([])
+  const [autoDetectTypes, setAutoDetectTypes] = useState(true)
+  const [questionCount, setQuestionCount] = useState(13)
 
   if (!open) return null
 
+  const toggleType = (type: string) => {
+    setQuestionTypes((current) =>
+      current.includes(type) ? current.filter((t) => t !== type) : [...current, type],
+    )
+  }
+
   const autoFormatParagraphs = () => {
-    setRawContent((current) => formatLineBreaksHtml(current))
+    setRawContent((current) => formatLineBreaks(current))
   }
 
   const parseTest = async () => {
     setError(null)
     setParsed(null)
-    const plainText = htmlToPlainText(rawContent)
-    if (plainText.length < 20) {
+    if (rawContent.trim().length < 20) {
       setError('Vui lòng dán nội dung (ít nhất 20 ký tự).')
       return
     }
@@ -104,7 +99,12 @@ export function AIParseTestModal({
       const res = await fetch('/api/ai-parse-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText: plainText }),
+        body: JSON.stringify({
+          rawText: rawContent,
+          passagePart: targetPart,
+          questionTypes: autoDetectTypes ? [] : questionTypes,
+          questionCount,
+        }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -123,7 +123,7 @@ export function AIParseTestModal({
     setSaving(true)
     setError(null)
     try {
-      const passagePart = (parsed.passage_number || 1) as 1 | 2 | 3
+      const passagePart = (parsed.passage_number || targetPart) as 1 | 2 | 3
       const { data: passageData, error: passageError } = await supabase
         .from('passages')
         .insert({
@@ -221,7 +221,7 @@ export function AIParseTestModal({
             </span>
             <div>
               <h2 id="ai-parse-title" className="text-lg font-bold text-slate-900">AI Tự Động Tạo Đề</h2>
-              <p className="text-xs text-slate-500">Soạn hoặc dán nội dung bài thi — hỗ trợ định dạng xuống dòng và tách đoạn tự động</p>
+              <p className="text-xs text-slate-500">Dán nội dung bài thi — AI tự động trích xuất passage, câu hỏi, đáp án và giải thích</p>
             </div>
           </div>
           <button
@@ -236,7 +236,69 @@ export function AIParseTestModal({
 
         <div className="flex-1 overflow-y-auto p-5">
           {!parsed && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="text-xs font-semibold text-slate-600">
+                  Gán Passage
+                  <select
+                    value={targetPart}
+                    onChange={(e) => setTargetPart(Number(e.target.value) as 1 | 2 | 3)}
+                    className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-sky-400"
+                  >
+                    <option value={1}>Passage 1</option>
+                    <option value={2}>Passage 2</option>
+                    <option value={3}>Passage 3</option>
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Số câu hỏi
+                  <input
+                    type="number"
+                    min={1}
+                    max={40}
+                    value={questionCount}
+                    onChange={(e) => setQuestionCount(Math.max(1, Math.min(40, Number(e.target.value) || 13)))}
+                    className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-sky-400"
+                  />
+                </label>
+                <div className="flex items-end">
+                  <label className="flex h-10 items-center gap-2 text-xs font-semibold text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={autoDetectTypes}
+                      onChange={(e) => setAutoDetectTypes(e.target.checked)}
+                      className="size-4 rounded border-slate-300 text-sky-600 focus:ring-sky-400"
+                    />
+                    Tự động nhận diện loại câu hỏi
+                  </label>
+                </div>
+              </div>
+
+              {!autoDetectTypes && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-slate-600">Loại câu hỏi dự định</p>
+                  <div className="flex flex-wrap gap-2">
+                    {QUESTION_TYPES.map((type) => {
+                      const active = questionTypes.includes(type)
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => toggleType(type)}
+                          className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                            active
+                              ? 'border-sky-300 bg-sky-50 text-sky-700'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="text-sm font-semibold text-slate-700">
                   Nội dung bài thi (Passage + Questions + Answer Keys)
@@ -253,15 +315,15 @@ export function AIParseTestModal({
                 </Button>
               </div>
 
-              <RichTextEditor
-                label="Trình soạn thảo nội dung AI"
+              <textarea
                 value={rawContent}
-                onChange={setRawContent}
-                minHeight={320}
+                onChange={(e) => setRawContent(e.target.value)}
+                placeholder="Dán nội dung bài thi vào đây..."
+                className="w-full min-h-[260px] max-h-[420px] resize-y overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-50"
               />
 
               <p className="text-xs text-slate-500">
-                Mẹo: Bạn có thể nhấn Enter để xuống dòng trực tiếp hoặc bấm <strong>Tự động tách đoạn &amp; xuống dòng</strong> sau khi dán văn bản từ PDF để tách rõ các đoạn A, B, C và câu hỏi.
+                Mẹo: Nhấn Enter để xuống dòng trực tiếp hoặc bấm <strong>Tự động tách đoạn &amp; xuống dòng</strong> sau khi dán văn bản từ PDF.
               </p>
             </div>
           )}

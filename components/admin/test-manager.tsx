@@ -114,8 +114,8 @@ export function TestManager() {
 
   return <div className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-start gap-3"><span className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 text-white"><Sparkles className="size-5" /></span><div><h2 className="font-bold text-slate-900">AI Tự Động Tạo Đề</h2><p className="mt-1 text-sm text-slate-500">Dán văn bản thô — AI tự động trích xuất passage, câu hỏi, đáp án và giải thích.</p></div></div>
-      <Button onClick={() => setAiModalOpen(true)} className="h-10 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 text-white hover:from-sky-700 hover:to-indigo-700"><Sparkles className="mr-2 size-4" />AI Tự Động Tạo Đề</Button>
+      <div className="flex items-start gap-3"><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 text-white"><Sparkles className="size-5" /></span><div><h2 className="font-bold text-slate-900">AI Tự Động Tạo Đề</h2><p className="mt-1 text-sm text-slate-500">Dán văn bản thô — AI tự động trích xuất passage, câu hỏi, đáp án và giải thích.</p></div></div>
+      <Button onClick={() => setAiModalOpen(true)} className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 px-4 text-white hover:from-sky-700 hover:to-indigo-700"><Sparkles className="mr-2 size-4" />AI Tự Động Tạo Đề</Button>
     </div>
 
     <AIParseTestModal open={aiModalOpen} onClose={() => setAiModalOpen(false)} onSaved={() => { void loadData(); setNotice('AI đã tạo bài đọc và câu hỏi. Kiểm tra thư viện passage để ghép đề.') }} />

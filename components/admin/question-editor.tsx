@@ -248,4 +248,16 @@ export function QuestionEditor({
         <textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={2} placeholder="Giải thích ngắn gọn vì sao đáp án đúng..." className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
       </label>
       {error && (
-        <p role="alert" className="mt-3 text-
+        <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>
+      )}
+
+      <div className="mt-4 flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onCancel} className="rounded-lg">Hủy</Button>
+        <Button type="submit" disabled={saving} className="rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+          <Save className="mr-2 size-4" />
+          {saving ? 'Đang lưu' : question ? 'Lưu thay đổi' : 'Thêm câu hỏi'}
+        </Button>
+      </div>
+    </form>
+  )
+}
