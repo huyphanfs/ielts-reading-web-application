@@ -1,7 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Clock3, GripHorizontal, Pause, Play, Send, StickyNote, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  Bold,
+  Clock3,
+  Eraser,
+  GripHorizontal,
+  Italic,
+  Minus,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Send,
+  StickyNote,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { AnnotationToolbar, DRAW_COLORS, HIGHLIGHT_COLORS, type ToolMode } from '@/components/exam/annotation-toolbar'
@@ -45,7 +61,10 @@ type CanvasTextNote = {
   width: number
   height: number
   text: string
-  color: string
+  fontSize: number
+  bold: boolean
+  italic: boolean
+  textColor: string
 }
 
 type LocalRect = {
@@ -55,6 +74,14 @@ type LocalRect = {
   width: number
   height: number
 }
+
+const NOTE_TEXT_COLORS = [
+  { name: 'Đỏ', value: '#DC2626' },
+  { name: 'Xám', value: '#475569' },
+  { name: 'Xanh lá', value: '#16A34A' },
+  { name: 'Cam', value: '#EA580C' },
+  { name: 'Xanh biển', value: '#0284C7' },
+] as const
 
 // 1 cm at 96 DPI = 37.795px -> radius = 18.9px (~19px)
 const ERASER_RADIUS_PX = 19
@@ -190,7 +217,7 @@ export function ExamShell({
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLORS[0].value)
   const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([])
 
-  // On-page drawn Textbox Notes
+  // Transparent on-page drawn Textbox Notes
   const [canvasTextNotes, setCanvasTextNotes] = useState<CanvasTextNote[]>([])
   const [drawingNoteRect, setDrawingNoteRect] = useState<LocalRect | null>(null)
   const [focusedNoteBoxId, setFocusedNoteBoxId] = useState<string | null>(null)
@@ -242,7 +269,7 @@ export function ExamShell({
           id: `box-${box.id}`,
           quote: '',
           text: box.text.trim(),
-          color: box.color,
+          color: box.textColor,
           passage_part: passage?.passage_part,
           pane: box.pane,
         }
@@ -334,8 +361,8 @@ export function ExamShell({
     const rect = range.getBoundingClientRect()
     setSelection({
       text,
-      top: Math.max(12, rect.top - 56),
-      left: Math.max(170, Math.min(window.innerWidth - 170, rect.left + rect.width / 2)),
+      top: Math.max(8, rect.top - 42),
+      left: Math.max(130, Math.min(window.innerWidth - 130, rect.left + rect.width / 2)),
       rectTop: rect.top,
       pane,
       passageId: currentPassage.id,
@@ -380,45 +407,36 @@ export function ExamShell({
     setSelection(null)
   }
 
-  const handleNoteButtonClick = () => {
-    // If text is selected, create highlight + open linked note popup
-    if (selection) {
-      const linkedAnnotation = annotations.find((item) => selection.highlightIds.includes(item.id))
-      const annotationId = linkedAnnotation?.id ?? crypto.randomUUID()
-      const color = linkedAnnotation?.color ?? selectedColor
+  const beginNoteFromSelection = () => {
+    if (!selection) return
+    const linkedAnnotation = annotations.find((item) => selection.highlightIds.includes(item.id))
+    const annotationId = linkedAnnotation?.id ?? crypto.randomUUID()
+    const color = linkedAnnotation?.color ?? selectedColor
 
-      if (!linkedAnnotation) {
-        setAnnotations((current) => [
-          ...current,
-          {
-            id: annotationId,
-            color,
-            pane: selection.pane,
-            passageId: selection.passageId,
-            quote: selection.text,
-            startOffset: selection.startOffset,
-            endOffset: selection.endOffset,
-          },
-        ])
-      }
-
-      setNoteAnchor({ top: selection.rectTop, left: selection.left })
-      setLinkedNoteContext({ annotationId, passagePart: currentPassage.passage_part, pane: selection.pane, color })
-      setSelectedColor(color)
-      setQuoteDraft(selection.text)
-      setNoteDraft('')
-      setEditingNoteId(null)
-      setNotesOpen(true)
-      window.getSelection()?.removeAllRanges()
-      setSelection(null)
-      return
+    if (!linkedAnnotation) {
+      setAnnotations((current) => [
+        ...current,
+        {
+          id: annotationId,
+          color,
+          pane: selection.pane,
+          passageId: selection.passageId,
+          quote: selection.text,
+          startOffset: selection.startOffset,
+          endOffset: selection.endOffset,
+        },
+      ])
     }
 
-    // Otherwise toggle 'note' mode to draw a textbox directly on the page
-    setToolMode((prev) => (prev === 'note' ? 'select' : 'note'))
-    setEraserClientPos(null)
-    setEraserRect(null)
-    setDrawingNoteRect(null)
+    setNoteAnchor({ top: selection.rectTop, left: selection.left })
+    setLinkedNoteContext({ annotationId, passagePart: currentPassage.passage_part, pane: selection.pane, color })
+    setSelectedColor(color)
+    setQuoteDraft(selection.text)
+    setNoteDraft('')
+    setEditingNoteId(null)
+    setNotesOpen(true)
+    window.getSelection()?.removeAllRanges()
+    setSelection(null)
   }
 
   const startNewNote = () => {
@@ -534,7 +552,7 @@ export function ExamShell({
   const questionTextNotes = canvasTextNotes.filter((n) => n.pane === 'questions' && n.passageId === currentPassage.id)
 
   const handleToolChange = useCallback((mode: ToolMode) => {
-    setToolMode(mode)
+    setToolMode((prev) => (prev === mode && mode !== 'select' ? 'select' : mode))
     setEraserClientPos(null)
     setEraserRect(null)
     setDrawingNoteRect(null)
@@ -581,7 +599,7 @@ export function ExamShell({
     }
   }
 
-  // Note Textbox drawing handlers
+  // Transparent Note Textbox drawing handlers
   const handleNoteBoxDrawStart = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
     if (toolMode !== 'note') return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -619,8 +637,8 @@ export function ExamShell({
     const rawW = Math.abs(x - start.x)
     const rawH = Math.abs(y - start.y)
 
-    const width = rawW < 16 && rawH < 16 ? 230 : Math.max(180, rawW)
-    const height = rawW < 16 && rawH < 16 ? 110 : Math.max(96, rawH)
+    const width = rawW < 16 && rawH < 16 ? 240 : Math.max(180, rawW)
+    const height = rawW < 16 && rawH < 16 ? 90 : Math.max(64, rawH)
     const clampedX = Math.max(8, Math.min(Math.max(8, rect.width - width - 8), rawX))
     const clampedY = Math.max(8, rawY)
 
@@ -633,7 +651,10 @@ export function ExamShell({
       width,
       height,
       text: '',
-      color: selectedColor,
+      fontSize: 15,
+      bold: false,
+      italic: false,
+      textColor: '#DC2626',
     }
 
     setCanvasTextNotes((prev) => [...prev, newNoteBox])
@@ -649,7 +670,6 @@ export function ExamShell({
       const ly = clientY - containerRect.top
       const R = ERASER_RADIUS_PX
 
-      // 1. Erase freehand draw strokes touched by 1cm circle
       setDrawStrokes((prev) =>
         prev.flatMap((stroke) => {
           if (stroke.pane !== pane || stroke.passageId !== currentPassage.id) return [stroke]
@@ -657,7 +677,6 @@ export function ExamShell({
         }),
       )
 
-      // 2. Erase text highlights touched by 1cm circle
       const root = rootForPane(pane)
       if (root) {
         const marks = root.querySelectorAll<HTMLElement>('[data-highlight-id]')
@@ -680,7 +699,6 @@ export function ExamShell({
         }
       }
 
-      // 3. Erase drawn textbox notes touched by 1cm circle
       setCanvasTextNotes((prev) =>
         prev.filter((box) => {
           if (box.pane !== pane || box.passageId !== currentPassage.id) return true
@@ -700,7 +718,6 @@ export function ExamShell({
       const minY = localRect.y
       const maxY = localRect.y + localRect.height
 
-      // 1. Erase freehand draw strokes inside rectangle
       setDrawStrokes((prev) =>
         prev.flatMap((stroke) => {
           if (stroke.pane !== pane || stroke.passageId !== currentPassage.id) return [stroke]
@@ -708,7 +725,6 @@ export function ExamShell({
         }),
       )
 
-      // 2. Erase text highlights inside rectangle
       const root = rootForPane(pane)
       if (root) {
         const selectionClientRect = {
@@ -738,7 +754,6 @@ export function ExamShell({
         }
       }
 
-      // 3. Erase drawn textbox notes overlapping rectangle
       setCanvasTextNotes((prev) =>
         prev.filter((box) => {
           if (box.pane !== pane || box.passageId !== currentPassage.id) return true
@@ -845,133 +860,231 @@ export function ExamShell({
   const hasAnyAnnotations =
     annotations.length > 0 || drawStrokes.length > 0 || notes.length > 0 || canvasTextNotes.length > 0
 
+  const updateNoteBox = (id: string, patch: Partial<CanvasTextNote>) => {
+    setCanvasTextNotes((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
   const renderCanvasTextNotes = (items: CanvasTextNote[]) =>
-    items.map((box) => (
-      <div
-        key={box.id}
-        style={{
-          left: box.x,
-          top: box.y,
-          width: box.width,
-          height: box.height,
-          backgroundColor: box.color || '#FEF08A',
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        onMouseUp={(e) => e.stopPropagation()}
-        onKeyUp={(e) => e.stopPropagation()}
-        className="pointer-events-auto absolute z-30 flex flex-col rounded-xl border border-slate-300/90 shadow-lg"
-      >
+    items.map((box) => {
+      const isFocused = focusedNoteBoxId === box.id
+      return (
         <div
+          key={box.id}
+          style={{
+            left: box.x,
+            top: box.y,
+            width: box.width,
+            height: box.height,
+          }}
           onPointerDown={(e) => {
-            if (e.button !== 0) return
             e.stopPropagation()
-            e.currentTarget.setPointerCapture(e.pointerId)
-            draggingBoxRef.current = {
-              id: box.id,
-              startX: e.clientX,
-              startY: e.clientY,
-              origX: box.x,
-              origY: box.y,
-            }
+            setFocusedNoteBoxId(box.id)
           }}
-          onPointerMove={(e) => {
-            const drag = draggingBoxRef.current
-            if (!drag || drag.id !== box.id) return
-            const dx = e.clientX - drag.startX
-            const dy = e.clientY - drag.startY
-            setCanvasTextNotes((prev) =>
-              prev.map((item) =>
-                item.id === box.id
-                  ? { ...item, x: Math.max(0, drag.origX + dx), y: Math.max(0, drag.origY + dy) }
-                  : item,
-              ),
-            )
-          }}
-          onPointerUp={(e) => {
-            if (draggingBoxRef.current?.id === box.id) {
-              draggingBoxRef.current = null
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId)
-              } catch {
-                // ignore
-              }
-            }
-          }}
-          className="flex h-6 shrink-0 cursor-grab items-center justify-between rounded-t-xl border-b border-black/10 bg-black/5 px-2 active:cursor-grabbing"
+          onMouseUp={(e) => e.stopPropagation()}
+          onKeyUp={(e) => e.stopPropagation()}
+          className={`group/notebox pointer-events-auto absolute z-30 flex flex-col rounded-lg bg-transparent transition ${
+            isFocused
+              ? 'border border-dashed border-sky-400/90'
+              : 'border border-transparent hover:border-dashed hover:border-slate-400/70'
+          }`}
         >
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-700">
-            <GripHorizontal className="size-3" /> Note
-          </span>
-          <button
-            type="button"
-            aria-label="Xóa khung note"
-            onClick={() => setCanvasTextNotes((prev) => prev.filter((item) => item.id !== box.id))}
-            className="flex size-4 items-center justify-center rounded text-slate-600 hover:bg-black/10 hover:text-rose-700"
+          {/* Thanh định dạng gọn nhẹ chỉ hiện khi hover hoặc đang nhập */}
+          <div
+            onMouseDown={(e) => e.preventDefault()}
+            className={`absolute -top-8 left-0 z-40 flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white/95 px-1.5 py-0.5 shadow-md backdrop-blur-xs transition ${
+              isFocused ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover/notebox:pointer-events-auto group-hover/notebox:opacity-100'
+            }`}
           >
-            <X className="size-3" />
-          </button>
-        </div>
+            {/* Nút kéo di chuyển */}
+            <span
+              title="Kéo để di chuyển"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                e.stopPropagation()
+                e.currentTarget.setPointerCapture(e.pointerId)
+                draggingBoxRef.current = {
+                  id: box.id,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: box.x,
+                  origY: box.y,
+                }
+              }}
+              onPointerMove={(e) => {
+                const drag = draggingBoxRef.current
+                if (!drag || drag.id !== box.id) return
+                const dx = e.clientX - drag.startX
+                const dy = e.clientY - drag.startY
+                updateNoteBox(box.id, {
+                  x: Math.max(0, drag.origX + dx),
+                  y: Math.max(0, drag.origY + dy),
+                })
+              }}
+              onPointerUp={(e) => {
+                if (draggingBoxRef.current?.id === box.id) {
+                  draggingBoxRef.current = null
+                  try {
+                    e.currentTarget.releasePointerCapture(e.pointerId)
+                  } catch {
+                    // ignore
+                  }
+                }
+              }}
+              className="flex size-5 cursor-grab items-center justify-center rounded text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
+            >
+              <GripHorizontal className="size-3.5" />
+            </span>
 
-        <textarea
-          autoFocus={focusedNoteBoxId === box.id}
-          value={box.text}
-          onFocus={() => setFocusedNoteBoxId(box.id)}
-          onChange={(e) => {
-            const val = e.target.value
-            setCanvasTextNotes((prev) => prev.map((item) => (item.id === box.id ? { ...item, text: val } : item)))
-          }}
-          placeholder="Nhập ghi chú..."
-          className="min-h-0 w-full flex-1 resize-none bg-transparent p-2 text-xs leading-relaxed text-slate-900 outline-none placeholder:text-slate-500"
-        />
+            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
 
-        <div
-          title="Kéo để đổi kích thước"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return
-            e.stopPropagation()
-            e.currentTarget.setPointerCapture(e.pointerId)
-            resizingBoxRef.current = {
-              id: box.id,
-              startX: e.clientX,
-              startY: e.clientY,
-              origW: box.width,
-              origH: box.height,
-            }
-          }}
-          onPointerMove={(e) => {
-            const res = resizingBoxRef.current
-            if (!res || res.id !== box.id) return
-            const dw = e.clientX - res.startX
-            const dh = e.clientY - res.startY
-            setCanvasTextNotes((prev) =>
-              prev.map((item) =>
-                item.id === box.id
-                  ? { ...item, width: Math.max(150, res.origW + dw), height: Math.max(80, res.origH + dh) }
-                  : item,
-              ),
-            )
-          }}
-          onPointerUp={(e) => {
-            if (resizingBoxRef.current?.id === box.id) {
-              resizingBoxRef.current = null
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId)
-              } catch {
-                // ignore
+            {/* Giảm / Tăng cỡ chữ */}
+            <button
+              type="button"
+              title="Giảm cỡ chữ"
+              onClick={() => updateNoteBox(box.id, { fontSize: Math.max(11, box.fontSize - 1) })}
+              className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100"
+            >
+              <Minus className="size-3" />
+            </button>
+            <span className="min-w-[24px] text-center text-[10px] font-semibold tabular-nums text-slate-600">
+              {box.fontSize}
+            </span>
+            <button
+              type="button"
+              title="Tăng cỡ chữ"
+              onClick={() => updateNoteBox(box.id, { fontSize: Math.min(32, box.fontSize + 1) })}
+              className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100"
+            >
+              <Plus className="size-3" />
+            </button>
+
+            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
+
+            {/* Bold & Italic */}
+            <button
+              type="button"
+              title="In đậm (Bold)"
+              aria-pressed={box.bold}
+              onClick={() => updateNoteBox(box.id, { bold: !box.bold })}
+              className={`flex size-5 items-center justify-center rounded transition ${
+                box.bold ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Bold className="size-3" />
+            </button>
+            <button
+              type="button"
+              title="In nghiêng (Italic)"
+              aria-pressed={box.italic}
+              onClick={() => updateNoteBox(box.id, { italic: !box.italic })}
+              className={`flex size-5 items-center justify-center rounded transition ${
+                box.italic ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Italic className="size-3" />
+            </button>
+
+            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
+
+            {/* 5 màu chữ: Đỏ, Xám, Xanh lá, Cam, Xanh biển */}
+            {NOTE_TEXT_COLORS.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                title={c.name}
+                aria-label={c.name}
+                onClick={() => updateNoteBox(box.id, { textColor: c.value })}
+                className={`size-3.5 rounded-full border border-slate-300 transition hover:scale-110 ${
+                  box.textColor === c.value ? 'ring-2 ring-sky-500 ring-offset-1' : ''
+                }`}
+                style={{ backgroundColor: c.value }}
+              />
+            ))}
+
+            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
+
+            {/* Xóa khung */}
+            <button
+              type="button"
+              aria-label="Xóa khung chữ"
+              title="Xóa"
+              onClick={() => setCanvasTextNotes((prev) => prev.filter((item) => item.id !== box.id))}
+              className="flex size-5 items-center justify-center rounded text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+
+          {/* Vùng nhập chữ trong suốt, không title */}
+          <textarea
+            autoFocus={isFocused}
+            value={box.text}
+            onFocus={() => setFocusedNoteBoxId(box.id)}
+            onBlur={() => {
+              window.setTimeout(() => {
+                setFocusedNoteBoxId((curr) => (curr === box.id ? null : curr))
+              }, 120)
+            }}
+            onChange={(e) => updateNoteBox(box.id, { text: e.target.value })}
+            placeholder="Nhập ghi chú..."
+            style={{
+              fontSize: `${box.fontSize}px`,
+              fontWeight: box.bold ? 700 : 400,
+              fontStyle: box.italic ? 'italic' : 'normal',
+              color: box.textColor,
+            }}
+            className="min-h-0 w-full flex-1 resize-none bg-transparent p-1.5 leading-snug outline-none placeholder:text-slate-400/80"
+          />
+
+          {/* Góc kéo thay đổi kích thước */}
+          <div
+            title="Kéo để đổi kích thước"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              e.stopPropagation()
+              e.currentTarget.setPointerCapture(e.pointerId)
+              resizingBoxRef.current = {
+                id: box.id,
+                startX: e.clientX,
+                startY: e.clientY,
+                origW: box.width,
+                origH: box.height,
               }
-            }
-          }}
-          className="absolute bottom-0 right-0 size-3.5 cursor-nwse-resize rounded-br-xl"
-        >
-          <span className="pointer-events-none absolute bottom-1 right-1 block size-1.5 border-b-2 border-r-2 border-slate-500/70" />
+            }}
+            onPointerMove={(e) => {
+              const res = resizingBoxRef.current
+              if (!res || res.id !== box.id) return
+              const dw = e.clientX - res.startX
+              const dh = e.clientY - res.startY
+              updateNoteBox(box.id, {
+                width: Math.max(120, res.origW + dw),
+                height: Math.max(40, res.origH + dh),
+              })
+            }}
+            onPointerUp={(e) => {
+              if (resizingBoxRef.current?.id === box.id) {
+                resizingBoxRef.current = null
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                } catch {
+                  // ignore
+                }
+              }
+            }}
+            className={`absolute bottom-0 right-0 size-3.5 cursor-nwse-resize transition ${
+              isFocused ? 'opacity-100' : 'opacity-0 group-hover/notebox:opacity-100'
+            }`}
+          >
+            <span className="pointer-events-none absolute bottom-1 right-1 block size-1.5 border-b-2 border-r-2 border-slate-500/70" />
+          </div>
         </div>
-      </div>
-    ))
+      )
+    })
 
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
       <AppHeader compact onHomeClick={onExit} />
-      <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm sm:px-6">
+      <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" className="size-9 shrink-0 rounded-lg text-slate-600" onClick={onExit} aria-label="Exit test">
             <ArrowLeft className="size-4" />
@@ -984,6 +1097,75 @@ export function ExamShell({
             </p>
           </div>
         </div>
+
+        {/* Công cụ vẽ, tẩy và vẽ khung note */}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => handleToolChange('draw')}
+            aria-pressed={toolMode === 'draw'}
+            title="Bút vẽ tự do"
+            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
+              toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            <Pencil className="size-3.5" /> Draw
+          </button>
+
+          {toolMode === 'draw' && (
+            <div className="flex items-center gap-1 px-1">
+              {DRAW_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  type="button"
+                  aria-label={`Draw ${color.name}`}
+                  onClick={() => setDrawColor(color.value)}
+                  className={`size-4 rounded-full border border-slate-300 transition hover:scale-110 ${
+                    drawColor === color.value ? 'ring-2 ring-sky-600 ring-offset-1' : ''
+                  }`}
+                  style={{ backgroundColor: color.value }}
+                />
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleToolChange('eraser')}
+            aria-pressed={toolMode === 'eraser'}
+            title="Cục tẩy tròn 1cm (bấm tới đâu xóa tới đó) hoặc kéo hình chữ nhật để xóa"
+            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
+              toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            <Eraser className="size-3.5" /> Eraser
+          </button>
+
+          {toolMode === 'eraser' && (
+            <button
+              type="button"
+              onClick={handleEraseAll}
+              disabled={!hasAnyAnnotations}
+              title="Xóa tất cả nét vẽ, highlight và ghi chú"
+              className="inline-flex h-7 items-center gap-1 rounded-lg bg-rose-50 px-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 className="size-3" /> Erase All
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleToolChange('note')}
+            aria-pressed={toolMode === 'note'}
+            title="Kéo vẽ khung ghi chú trong suốt lên bài đọc hoặc câu hỏi"
+            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
+              toolMode === 'note' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            <StickyNote className="size-3.5" /> Textbox Note
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 sm:gap-3">
           <div
             className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm font-bold tabular-nums ${
@@ -1101,7 +1283,7 @@ export function ExamShell({
                       width: drawingNoteRect.width,
                       height: drawingNoteRect.height,
                     }}
-                    className="pointer-events-none absolute rounded-xl border-2 border-dashed border-sky-500 bg-sky-500/10"
+                    className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
                   />
                 )}
               </div>
@@ -1133,7 +1315,7 @@ export function ExamShell({
               </div>
             )}
 
-            {/* Drawn Textbox Notes on Passage */}
+            {/* Transparent Textbox Notes on Passage */}
             {renderCanvasTextNotes(passageTextNotes)}
           </div>
         </section>
@@ -1236,7 +1418,7 @@ export function ExamShell({
                         width: drawingNoteRect.width,
                         height: drawingNoteRect.height,
                       }}
-                      className="pointer-events-none absolute rounded-xl border-2 border-dashed border-sky-500 bg-sky-500/10"
+                      className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
                     />
                   )}
                 </div>
@@ -1268,7 +1450,7 @@ export function ExamShell({
                 </div>
               )}
 
-              {/* Drawn Textbox Notes on Questions */}
+              {/* Transparent Textbox Notes on Questions */}
               {renderCanvasTextNotes(questionTextNotes)}
             </div>
           </div>
@@ -1343,53 +1525,17 @@ export function ExamShell({
         </div>
       </footer>
 
-      <AnnotationToolbar
-        position={selection ? { top: selection.top, left: selection.left } : { top: 80, left: 320 }}
-        selectedColor={selectedColor}
-        hasHighlight={!!selection?.highlightIds?.length}
-        hasAnyAnnotations={hasAnyAnnotations}
-        toolMode={toolMode}
-        drawColor={drawColor}
-        onHighlight={applySelectedHighlight}
-        onClear={clearSelectedHighlights}
-        onEraseAll={handleEraseAll}
-        onNote={handleNoteButtonClick}
-        onToolChange={handleToolChange}
-        onDrawColorChange={setDrawColor}
-      />
-
-      {pauseReason === 'auto' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
-          <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-md rounded-2xl border border-white/70 bg-white/95 p-7 text-center shadow-2xl">
-            <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-sky-50 text-sky-700">
-              <Pause className="size-6" />
-            </div>
-            <h2 id="pause-title" className="mt-4 text-xl font-bold text-slate-900">Test Paused</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              The timer was automatically paused because you switched to another tab or application. Click resume to continue.
-            </p>
-            <Button onClick={() => setPauseReason(null)} className="mt-6 h-11 w-full rounded-lg bg-sky-600 text-white hover:bg-sky-700">
-              <Play className="mr-2 size-4" /> Resume Test
-            </Button>
-          </div>
-        </div>
+      {/* Thanh highlight ẩn đi — chỉ hiện nhỏ gọn phía trên khi người dùng chọn text */}
+      {selection && (
+        <AnnotationToolbar
+          position={{ top: selection.top, left: selection.left }}
+          selectedColor={selectedColor}
+          hasHighlight={!!selection.highlightIds?.length}
+          onHighlight={applySelectedHighlight}
+          onClear={clearSelectedHighlights}
+          onNote={beginNoteFromSelection}
+        />
       )}
 
-      <StudyNotesDrawer
-        open={notesOpen}
-        anchorPosition={noteAnchor}
-        notes={notes}
-        quoteDraft={quoteDraft}
-        noteDraft={noteDraft}
-        editingNoteId={editingNoteId}
-        onClose={() => setNotesOpen(false)}
-        onQuoteChange={setQuoteDraft}
-        onTextChange={setNoteDraft}
-        onSave={saveNote}
-        onCreate={startNewNote}
-        onEdit={editNote}
-        onDelete={deleteNote}
-      />
-    </div>
-  )
-}
+      {pauseReason === 'auto' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md"
