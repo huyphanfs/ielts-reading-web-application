@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { AnnotationToolbar, DRAW_COLORS, HIGHLIGHT_COLORS, type ToolMode } from '@/components/exam/annotation-toolbar'
 import { QuestionGroupCard } from '@/components/exam/question-group'
-import { StudyNotesDrawer } from '@/components/exam/study-notes-drawer'
+import { StudyNotesDrawer, type NoteAnchorPosition } from '@/components/exam/study-notes-drawer'
 import { useAuth } from '@/components/auth-provider'
 import { applyHighlight as applyAnnotation, getHighlightIdsInRange, getTextOffsets, removeHighlight } from '@/lib/text-annotations'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -19,6 +19,7 @@ type TextSelection = {
   text: string
   top: number
   left: number
+  rectTop: number
   pane: 'passage' | 'questions'
   passageId: string
   startOffset: number
@@ -92,6 +93,7 @@ export function ExamShell({
   const [split, setSplit] = useState(60)
   const [submitting, setSubmitting] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
+  const [noteAnchor, setNoteAnchor] = useState<NoteAnchorPosition>(null)
   const [notes, setNotes] = useState<StudyNote[]>([])
   const [noteDraft, setNoteDraft] = useState('')
   const [quoteDraft, setQuoteDraft] = useState('')
@@ -182,7 +184,7 @@ export function ExamShell({
       try {
         applyAnnotation(root, annotation)
       } catch {
-        // Skip annotations that fail to apply (e.g. DOM changed during render)
+        // Skip annotations that fail to apply
       }
     }
   }, [annotations, currentGroups, currentPassage.id, rootForPane])
@@ -220,6 +222,7 @@ export function ExamShell({
       text,
       top: Math.max(12, rect.top - 56),
       left: Math.max(170, Math.min(window.innerWidth - 170, rect.left + rect.width / 2)),
+      rectTop: rect.top,
       pane,
       passageId: currentPassage.id,
       ...offsets,
@@ -254,6 +257,7 @@ export function ExamShell({
     const root = rootForPane(selection.pane)
     selection.highlightIds.forEach((id) => removeHighlight(root, id))
     setAnnotations((current) => current.filter((item) => !selection.highlightIds.includes(item.id)))
+    setNotes((current) => current.filter((note) => !selection.highlightIds.includes(note.annotation_id ?? '')))
     window.getSelection()?.removeAllRanges()
     setSelection(null)
   }
@@ -276,6 +280,7 @@ export function ExamShell({
       }])
     }
 
+    setNoteAnchor({ top: selection.rectTop, left: selection.left })
     setLinkedNoteContext({ annotationId, passagePart: currentPassage.passage_part, pane: selection.pane, color })
     setSelectedColor(color)
     setQuoteDraft(selection.text)
@@ -287,6 +292,7 @@ export function ExamShell({
   }
 
   const startNewNote = () => {
+    setNoteAnchor(null)
     setLinkedNoteContext(null)
     setQuoteDraft('')
     setNoteDraft('')
@@ -331,6 +337,12 @@ export function ExamShell({
   }
 
   const deleteNote = (noteId: string) => {
+    const targetNote = notes.find((item) => item.id === noteId)
+    if (targetNote?.annotation_id) {
+      const ann = annotations.find((a) => a.id === targetNote.annotation_id)
+      if (ann) removeHighlight(rootForPane(ann.pane), ann.id)
+      setAnnotations((current) => current.filter((a) => a.id !== targetNote.annotation_id))
+    }
     setNotes((current) => current.filter((item) => item.id !== noteId))
     if (editingNoteId === noteId) {
       setEditingNoteId(null)
@@ -415,18 +427,48 @@ export function ExamShell({
     setDrawStrokes((prev) => prev.filter((s) => s.id !== strokeId))
   }
 
-  const handleEraseClick = (pane: 'passage' | 'questions') => (e: React.MouseEvent) => {
-    if (toolMode !== 'eraser') return
+  const handlePaneClick = (pane: 'passage' | 'questions') => (e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     const mark = target.closest<HTMLElement>('[data-highlight-id]')
     if (!mark) return
     const highlightId = mark.dataset.highlightId
     if (!highlightId) return
-    const root = rootForPane(pane)
-    removeHighlight(root, highlightId)
-    setAnnotations((prev) => prev.filter((a) => a.id !== highlightId))
-    setNotes((prev) => prev.filter((n) => n.annotation_id !== highlightId))
+
+    if (toolMode === 'eraser') {
+      const root = rootForPane(pane)
+      removeHighlight(root, highlightId)
+      setAnnotations((prev) => prev.filter((a) => a.id !== highlightId))
+      setNotes((prev) => prev.filter((n) => n.annotation_id !== highlightId))
+      return
+    }
+
+    if (toolMode === 'select') {
+      const linkedNote = notes.find((n) => n.annotation_id === highlightId)
+      if (linkedNote) {
+        const rect = mark.getBoundingClientRect()
+        setNoteAnchor({ top: rect.top, left: rect.left + rect.width / 2 })
+        editNote(linkedNote)
+        setNotesOpen(true)
+      }
+    }
   }
+
+  const handleEraseAll = () => {
+    for (const ann of annotations) {
+      removeHighlight(rootForPane(ann.pane), ann.id)
+    }
+    setAnnotations([])
+    setDrawStrokes([])
+    setNotes([])
+    setNoteDraft('')
+    setQuoteDraft('')
+    setEditingNoteId(null)
+    setLinkedNoteContext(null)
+    setNotesOpen(false)
+    setSelection(null)
+  }
+
+  const hasAnyAnnotations = annotations.length > 0 || drawStrokes.length > 0 || notes.length > 0
 
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
@@ -494,7 +536,7 @@ export function ExamShell({
               className={`rich-content text-[15px] leading-[1.9] ${toolMode === 'select' ? 'selection:bg-yellow-200/80' : 'select-none'}`}
               onMouseUp={() => toolMode === 'select' && selectText('passage')}
               onKeyUp={() => toolMode === 'select' && selectText('passage')}
-              onClick={handleEraseClick('passage')}
+              onClick={handlePaneClick('passage')}
               dangerouslySetInnerHTML={{ __html: currentPassageHtml }}
             />
             {!currentPassage.content && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Reading passage content is being updated.</p>}
@@ -516,6 +558,7 @@ export function ExamShell({
                   strokeLinejoin="round"
                   fill="none"
                   className={toolMode === 'eraser' ? 'pointer-events-stroke cursor-pointer' : 'pointer-events-none'}
+                  onPointerEnter={(e) => { if (toolMode === 'eraser' && e.buttons === 1) handleEraseStroke(stroke.id) }}
                   onClick={() => handleEraseStroke(stroke.id)}
                 />
               ))}
@@ -551,7 +594,7 @@ export function ExamShell({
               <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} answered</span>
             </div>
             <div className="relative w-full">
-              <div ref={questionRef} className={`w-full space-y-3 ${toolMode === 'select' ? '' : 'select-none'}`} onMouseUp={() => toolMode === 'select' && selectText('questions')} onKeyUp={() => toolMode === 'select' && selectText('questions')} onClick={handleEraseClick('questions')}>
+              <div ref={questionRef} className={`w-full space-y-3 ${toolMode === 'select' ? '' : 'select-none'}`} onMouseUp={() => toolMode === 'select' && selectText('questions')} onKeyUp={() => toolMode === 'select' && selectText('questions')} onClick={handlePaneClick('questions')}>
                 {currentGroups.length ? currentGroups.map((group) => (
                   <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />
                 )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No questions available for this passage yet.</div>}
@@ -574,6 +617,7 @@ export function ExamShell({
                     strokeLinejoin="round"
                     fill="none"
                     className={toolMode === 'eraser' ? 'pointer-events-stroke cursor-pointer' : 'pointer-events-none'}
+                    onPointerEnter={(e) => { if (toolMode === 'eraser' && e.buttons === 1) handleEraseStroke(stroke.id) }}
                     onClick={() => handleEraseStroke(stroke.id)}
                   />
                 ))}
@@ -613,13 +657,15 @@ export function ExamShell({
       </footer>
 
       <AnnotationToolbar
-        position={selection ?? { top: 80, left: 320 }}
+        position={selection ? { top: selection.top, left: selection.left } : { top: 80, left: 320 }}
         selectedColor={selectedColor}
         hasHighlight={!!selection?.highlightIds?.length}
+        hasAnyAnnotations={hasAnyAnnotations}
         toolMode={toolMode}
         drawColor={drawColor}
         onHighlight={applySelectedHighlight}
         onClear={clearSelectedHighlights}
+        onEraseAll={handleEraseAll}
         onNote={beginNote}
         onToolChange={handleToolChange}
         onDrawColorChange={setDrawColor}
@@ -636,6 +682,7 @@ export function ExamShell({
 
       <StudyNotesDrawer
         open={notesOpen}
+        anchorPosition={noteAnchor}
         notes={notes}
         quoteDraft={quoteDraft}
         noteDraft={noteDraft}
