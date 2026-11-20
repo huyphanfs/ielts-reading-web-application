@@ -7,7 +7,6 @@ import { readStringArray } from '@/lib/grading'
 import type { ExamGroup, UserAnswer } from '@/lib/types'
 
 const ROMAN_NUMERALS = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv']
-const FIXED_CHOICE_WORDS = new Set(['TRUE', 'FALSE', 'NOT GIVEN', 'YES', 'NO'])
 
 function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
@@ -46,19 +45,19 @@ function normalizeOptionLabel(item: string): { prefix: string; rest: string; isR
     return { prefix: '', rest: unwrapped, isRoman: false, hasHtml: true }
   }
 
-  // Không tách chữ đầu đối với TRUE/FALSE/NOT GIVEN và YES/NO
-  if (FIXED_CHOICE_WORDS.has(trimmed.toUpperCase())) {
+  // Giữ nguyên TRUE / FALSE / NOT GIVEN / YES / NO, không tách chữ cái đầu
+  if (/^(true|false|not given|yes|no)$/i.test(trimmed)) {
     return { prefix: '', rest: trimmed, isRoman: false, hasHtml: false }
   }
 
-  // Chỉ tách số La Mã khi có dấu chấm/ngoặc đi kèm (vd: i. Heading, iv) Heading)
-  const romanMatch = trimmed.match(/^([ivx]+)[.)]\s+(.*)/i)
+  // Số La Mã: i., ii., iii., iv...
+  const romanMatch = trimmed.match(/^([ivx]+)[.)]\s*(.*)/i)
   if (romanMatch && ROMAN_NUMERALS.includes(romanMatch[1].toLowerCase())) {
-    const prefix = `${romanMatch[1].toLowerCase()}.`
-    return { prefix, rest: romanMatch[2], isRoman: true, hasHtml: false }
+    const prefix = `${romanMatch[1]}.`
+    return { prefix: prefix.toLowerCase(), rest: romanMatch[2], isRoman: true, hasHtml: false }
   }
 
-  // Chỉ tách chữ cái lựa chọn khi có dấu phân cách rõ ràng (vd: A. Option, B) Option)
+  // Chữ cái lựa chọn bắt buộc có dấu phân cách (A., B), C:, D-)
   const letterMatch = trimmed.match(/^([A-Za-z])[.)\-:]\s*(.*)/)
   if (letterMatch && letterMatch[1].length === 1 && /[A-Za-z]/.test(letterMatch[1])) {
     const prefix = `${letterMatch[1].toUpperCase()}.`
@@ -94,9 +93,6 @@ function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) 
     items = raw.flatMap((item) => {
       if (typeof item === 'string') {
         const plain = stripHtml(item)
-        if (FIXED_CHOICE_WORDS.has(plain.toUpperCase())) {
-          return [{ value: plain.toUpperCase(), label: item }]
-        }
         const match = plain.match(/^([A-Z])\s*[.)\-:]/i)
         return [{ value: match?.[1]?.toUpperCase() ?? plain, label: item }]
       }
