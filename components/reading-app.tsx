@@ -1,7 +1,23 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpenCheck, Check, Clock3, FileText, Layers, LoaderCircle, LockKeyhole, RotateCw, Shuffle, Sparkles, Tag, Timer, TriangleAlert } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowRight,
+  BookOpenCheck,
+  Check,
+  ChevronDown,
+  Clock3,
+  FileText,
+  Layers,
+  LoaderCircle,
+  LockKeyhole,
+  RotateCw,
+  Shuffle,
+  Sparkles,
+  Tag,
+  Timer,
+  TriangleAlert,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { ExamShell } from '@/components/exam-shell'
@@ -9,10 +25,10 @@ import { ResultsScreen } from '@/components/results-screen'
 import { useAuth } from '@/components/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 import { loadExamDefinition } from '@/lib/exam-data'
-import { gradeExam } from '@/lib/grading'
+import { gradeExam, readStringArray } from '@/lib/grading'
 import { buildDemoExamDefinition, DEMO_TEST_CARD, DEMO_TEST_TITLE } from '@/lib/demo-test'
 import { parsePassageTopics } from '@/lib/types'
-import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
+import type { ExamDefinition, GradingSummary, Passage, PassageTopic, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
 
 const supabase = createClient()
 
@@ -24,6 +40,175 @@ type TestRow = {
   passage_3_id: string | null
   created_at: string
   isDemo?: boolean
+}
+
+const TOPIC_BADGE_STYLES: Record<string, string> = {
+  Science: 'border-sky-200 bg-sky-50 text-sky-700',
+  Technology: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  Environment: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  Health: 'border-rose-200 bg-rose-50 text-rose-700',
+  Psychology: 'border-purple-200 bg-purple-50 text-purple-700',
+  Animal: 'border-amber-200 bg-amber-50 text-amber-800',
+  Education: 'border-blue-200 bg-blue-50 text-blue-700',
+  Culture: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700',
+  Society: 'border-teal-200 bg-teal-50 text-teal-700',
+  History: 'border-orange-200 bg-orange-50 text-orange-800',
+  Geography: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+  Economics: 'border-lime-200 bg-lime-50 text-lime-800',
+  Travel: 'border-violet-200 bg-violet-50 text-violet-700',
+  Literature: 'border-pink-200 bg-pink-50 text-pink-700',
+  Art: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+}
+
+function TopicPill({ topic, compact = false }: { topic: PassageTopic; compact?: boolean }) {
+  const colorClass = TOPIC_BADGE_STYLES[topic] ?? 'border-sky-200 bg-sky-50 text-sky-700'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full border font-semibold ${colorClass} ${
+        compact ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-0.5 text-[11px]'
+      }`}
+    >
+      <Tag className={compact ? 'size-2.5' : 'size-3'} />
+      {topic}
+    </span>
+  )
+}
+
+function PassageSelectDropdown({
+  passages,
+  selectedId,
+  counts,
+  onSelect,
+  placeholder = 'Select a passage',
+  ariaLabel = 'Select a practice passage',
+}: {
+  passages: Array<Passage & { actualCount?: number }>
+  selectedId: string
+  counts: Record<string, number>
+  onSelect: (id: string) => void
+  placeholder?: string
+  ariaLabel?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const selected = useMemo(
+    () => passages.find((p) => p.id === selectedId) ?? passages[0] ?? null,
+    [passages, selectedId],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    const handleOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    document.addEventListener('keydown', handleEsc)
+    return () => {
+      document.removeEventListener('mousedown', handleOutside)
+      document.removeEventListener('keydown', handleEsc)
+    }
+  }, [open])
+
+  if (!passages.length) {
+    return (
+      <div className="flex h-10 w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs text-slate-400">
+        {placeholder}
+      </div>
+    )
+  }
+
+  const selectedTopics = selected ? parsePassageTopics(selected.topic) : []
+  const selectedCount = selected ? (counts[selected.id] ?? selected.actualCount ?? 0) : 0
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => setOpen((prev) => !prev)}
+        className={`flex min-h-[42px] w-full items-center justify-between gap-2 rounded-xl border bg-white px-3.5 py-2 text-left transition ${
+          open
+            ? 'border-sky-500 ring-4 ring-sky-100'
+            : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span className="truncate text-sm font-semibold text-slate-900">
+            {selected?.title ?? placeholder}
+          </span>
+          {selectedTopics.map((topicItem) => (
+            <TopicPill key={topicItem} topic={topicItem} compact />
+          ))}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 tabular-nums">
+            {selectedCount} {selectedCount === 1 ? 'q' : 'qs'}
+          </span>
+          <ChevronDown
+            className={`size-4 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180 text-sky-600' : ''}`}
+          />
+        </div>
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-900/10"
+        >
+          {passages.map((p) => {
+            const isSelected = p.id === selected?.id
+            const topics = parsePassageTopics(p.topic)
+            const qCount = counts[p.id] ?? p.actualCount ?? 0
+            return (
+              <li key={p.id} role="option" aria-selected={isSelected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(p.id)
+                    setOpen(false)
+                  }}
+                  className={`flex w-full items-center justify-between gap-2.5 rounded-lg px-3 py-2 text-left transition ${
+                    isSelected
+                      ? 'bg-sky-50/90 text-sky-950'
+                      : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`truncate text-sm ${isSelected ? 'font-bold text-sky-900' : 'font-medium text-slate-800'}`}>
+                        {p.title}
+                      </span>
+                    </div>
+                    {topics.length > 0 && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {topics.map((topicItem) => (
+                          <TopicPill key={topicItem} topic={topicItem} compact />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500 tabular-nums">
+                      {qCount} {qCount === 1 ? 'question' : 'questions'}
+                    </span>
+                    {isSelected && <Check className="size-4 text-sky-600" />}
+                  </div>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export function ReadingApp() {
@@ -41,10 +226,6 @@ export function ReadingApp() {
   const [studyNotes, setStudyNotes] = useState<StudyNote[]>([])
   const [resultTimeSpent, setResultTimeSpent] = useState(0)
 
-  // Chế độ thời gian riêng cho từng mục:
-  // - Full Test: 60 min hoặc Untimed
-  // - Practice Single Passage: 20 min hoặc Untimed
-  // - Practice Full 3 Passage: 60 min hoặc Untimed
   const [testTimed, setTestTimed] = useState(true)
   const [practiceType, setPracticeType] = useState<'single' | 'full3'>('single')
   const [singlePracticeTimed, setSinglePracticeTimed] = useState(true)
@@ -53,7 +234,6 @@ export function ReadingApp() {
   const [selectedPart2Id, setSelectedPart2Id] = useState('')
   const [selectedPart3Id, setSelectedPart3Id] = useState('')
 
-  // Single Passage practice: passage part selector + shuffled 5-passage pool
   const [singlePart, setSinglePart] = useState<1 | 2 | 3>(1)
   const [singleShufflePool, setSingleShufflePool] = useState<Passage[]>([])
   const [singleSelectedId, setSingleSelectedId] = useState('')
@@ -65,13 +245,14 @@ export function ReadingApp() {
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true)
     setCatalogError(null)
-    const [passageResult, testResult, questionResult] = await Promise.all([
+    const [passageResult, testResult, groupResult, questionResult] = await Promise.all([
       supabase.from('passages').select('*').order('passage_part').order('created_at'),
       supabase.from('tests').select('*').order('created_at'),
-      supabase.from('questions').select('id,passage_id'),
+      supabase.from('question_groups').select('id,input_type'),
+      supabase.from('questions').select('id,passage_id,group_id,accepted_answers'),
     ])
 
-    const error = passageResult.error ?? testResult.error ?? questionResult.error
+    const error = passageResult.error ?? testResult.error ?? groupResult.error ?? questionResult.error
     if (error) {
       setCatalogError('Unable to load reading passages. Please refresh the page or check your Supabase connection.')
       setPassages([])
@@ -81,10 +262,20 @@ export function ReadingApp() {
       return
     }
 
+    const groupInputTypeById = new Map<string, string>()
+    for (const group of groupResult.data ?? []) {
+      groupInputTypeById.set(group.id, group.input_type)
+    }
+
+    // Đếm đúng số câu hỏi thực tế (câu check_box có nhiều đáp án như Questions 12–13 được tính là 2 câu)
     const questionCounts: Record<string, number> = {}
     for (const question of questionResult.data ?? []) {
-      questionCounts[question.passage_id] = (questionCounts[question.passage_id] ?? 0) + 1
+      const inputType = groupInputTypeById.get(question.group_id)
+      const accepted = inputType === 'check_box' ? readStringArray(question.accepted_answers) : []
+      const increment = inputType === 'check_box' && accepted.length > 1 ? accepted.length : 1
+      questionCounts[question.passage_id] = (questionCounts[question.passage_id] ?? 0) + increment
     }
+
     setPassages((passageResult.data ?? []) as Passage[])
     setTests((testResult.data ?? []) as TestRow[])
     setCounts(questionCounts)
@@ -232,7 +423,6 @@ export function ReadingApp() {
     await beginExam({ selectedPassages: selected, title: test.title, mode: 'test', isTimed: testTimed, timeLimitSeconds: 60 * 60, testId: test.id })
   }
 
-  // Random Full Test chỉ lấy từ các bài đọc phân loại "Test" (is_test_only === true)
   const startRandomTest = async () => {
     const part1 = testOnlyPassages.filter((passage) => passage.passage_part === 1 && passage.actualCount === 13)
     const part2 = testOnlyPassages.filter((passage) => passage.passage_part === 2 && (passage.actualCount === 13 || passage.actualCount === 14))
@@ -253,7 +443,6 @@ export function ReadingApp() {
     await beginExam({ selectedPassages: combination, title: 'Random Full Test · 40 Questions', mode: 'test', isTimed: testTimed, timeLimitSeconds: 60 * 60 })
   }
 
-  // Practice 1: Single Passage -> 20 phút (1200s) hoặc không giới hạn thời gian
   const startSinglePractice = (passage: Passage) => beginExam({
     selectedPassages: [passage],
     title: passage.title,
@@ -263,7 +452,6 @@ export function ReadingApp() {
     testId: null,
   })
 
-  // Practice 2: Full 3 Passage -> 60 phút (3600s) hoặc không giới hạn thời gian
   const startCustomFull3Practice = async () => {
     const selectedIds = [selectedPart1Id, selectedPart2Id, selectedPart3Id].filter(Boolean)
     if (selectedIds.length !== 3 || new Set(selectedIds).size !== 3) {
@@ -490,7 +678,7 @@ export function ReadingApp() {
           <div className="grid gap-5 lg:grid-cols-2"><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /><div className="h-64 animate-pulse rounded-2xl bg-white shadow-sm" /></div>
         ) : (
           <div className="grid gap-5 lg:grid-cols-2">
-            {/* Cột 1: Full Test · 40 Questions (Chỉ dùng các bài phân loại Test) */}
+            {/* Cột 1: Full Test · 40 Questions */}
             <article className="group relative min-w-0 overflow-hidden rounded-2xl border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-sky-50 blur-2xl transition group-hover:bg-sky-100" />
               <div className="relative min-w-0">
@@ -562,7 +750,6 @@ export function ReadingApp() {
                 </span>
               </div>
 
-              {/* Thanh chuyển 2 dạng Practice: Single Passage | Full 3 Passage */}
               <div role="tablist" aria-label="Practice format" className="mt-5 grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1">
                 <button
                   type="button"
@@ -624,33 +811,26 @@ export function ReadingApp() {
 
                   {singleShufflePool.length > 0 ? (
                     <div className="space-y-2.5">
-                      <select
-                        value={singleSelectedId}
-                        onChange={(e) => setSingleSelectedId(e.target.value)}
-                        aria-label="Select a practice passage"
-                        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-sky-400"
-                      >
-                        {singleShufflePool.map((p) => {
-                          const count = counts[p.id] ?? 0
-                          return (
-                            <option key={p.id} value={p.id}>
-                              {p.title}{p.topic ? ` [${p.topic}]` : ''} ({count} questions)
-                            </option>
-                          )
-                        })}
-                      </select>
+                      <PassageSelectDropdown
+                        passages={singleShufflePool}
+                        selectedId={singleSelectedId}
+                        counts={counts}
+                        onSelect={setSingleSelectedId}
+                        ariaLabel="Select a practice passage"
+                      />
 
                       {singleSelectedPassage && (
-                        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-2">
-                          {parsePassageTopics(singleSelectedPassage.topic).map((topicItem) => (
-                            <span
-                              key={topicItem}
-                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
-                            >
-                              <Tag className="size-2.5" /> {topicItem}
-                            </span>
-                          ))}
-                          <span className="text-xs text-slate-500">
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/90 px-3.5 py-2.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {parsePassageTopics(singleSelectedPassage.topic).length > 0 ? (
+                              parsePassageTopics(singleSelectedPassage.topic).map((topicItem) => (
+                                <TopicPill key={topicItem} topic={topicItem} />
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-400">General Topic</span>
+                            )}
+                          </div>
+                          <span className="text-xs font-medium text-slate-500">
                             Passage {singleSelectedPassage.passage_part} · {counts[singleSelectedPassage.id] ?? 0} questions · {singlePracticeTimed ? '20 min' : 'Untimed'}
                           </span>
                         </div>
@@ -692,51 +872,39 @@ export function ReadingApp() {
 
                     <div className="space-y-2.5">
                       <div>
-                        <label htmlFor="practice-p1" className="mb-1 block text-xs font-semibold text-slate-600">Passage 1</label>
-                        <select
-                          id="practice-p1"
-                          value={selectedPart1Id}
-                          onChange={(e) => setSelectedPart1Id(e.target.value)}
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-sky-400"
-                        >
-                          {part1Options.length ? part1Options.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
-                            </option>
-                          )) : <option value="">No Passage 1 available</option>}
-                        </select>
+                        <span className="mb-1 block text-xs font-semibold text-slate-600">Passage 1</span>
+                        <PassageSelectDropdown
+                          passages={part1Options}
+                          selectedId={selectedPart1Id}
+                          counts={counts}
+                          onSelect={setSelectedPart1Id}
+                          placeholder="No Passage 1 available"
+                          ariaLabel="Select Passage 1"
+                        />
                       </div>
 
                       <div>
-                        <label htmlFor="practice-p2" className="mb-1 block text-xs font-semibold text-slate-600">Passage 2</label>
-                        <select
-                          id="practice-p2"
-                          value={selectedPart2Id}
-                          onChange={(e) => setSelectedPart2Id(e.target.value)}
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-sky-400"
-                        >
-                          {part2Options.length ? part2Options.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
-                            </option>
-                          )) : <option value="">No Passage 2 available</option>}
-                        </select>
+                        <span className="mb-1 block text-xs font-semibold text-slate-600">Passage 2</span>
+                        <PassageSelectDropdown
+                          passages={part2Options}
+                          selectedId={selectedPart2Id}
+                          counts={counts}
+                          onSelect={setSelectedPart2Id}
+                          placeholder="No Passage 2 available"
+                          ariaLabel="Select Passage 2"
+                        />
                       </div>
 
                       <div>
-                        <label htmlFor="practice-p3" className="mb-1 block text-xs font-semibold text-slate-600">Passage 3</label>
-                        <select
-                          id="practice-p3"
-                          value={selectedPart3Id}
-                          onChange={(e) => setSelectedPart3Id(e.target.value)}
-                          className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-sky-400"
-                        >
-                          {part3Options.length ? part3Options.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.title}{p.topic ? ` [${p.topic}]` : ''} (P{p.passage_part} · {p.actualCount} questions)
-                            </option>
-                          )) : <option value="">No Passage 3 available</option>}
-                        </select>
+                        <span className="mb-1 block text-xs font-semibold text-slate-600">Passage 3</span>
+                        <PassageSelectDropdown
+                          passages={part3Options}
+                          selectedId={selectedPart3Id}
+                          counts={counts}
+                          onSelect={setSelectedPart3Id}
+                          placeholder="No Passage 3 available"
+                          ariaLabel="Select Passage 3"
+                        />
                       </div>
                     </div>
 
