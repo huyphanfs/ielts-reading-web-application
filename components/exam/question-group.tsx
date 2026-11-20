@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { readStringArray } from '@/lib/grading'
@@ -60,19 +60,16 @@ function normalizeOptionLabel(item: string): { prefix: string; rest: string; isR
     return { prefix: '', rest: unwrapped, isRoman: false, hasHtml: true }
   }
 
-  // Không tách chữ cái đầu đối với TRUE/FALSE/NOT GIVEN và YES/NO/NOT GIVEN
   if (FIXED_WORDS.has(trimmed.toUpperCase())) {
     return { prefix: '', rest: trimmed, isRoman: false, hasHtml: false }
   }
 
-  // Chỉ nhận diện tiền tố số La Mã khi có dấu chấm/ngoặc đi kèm (vd: "i.", "ii)") hoặc đứng một mình
   const romanMatch = trimmed.match(/^([ivx]+)(?:[.)\-:]\s*(.*)|$)$/i)
   if (romanMatch && ROMAN_NUMERALS.includes(romanMatch[1].toLowerCase())) {
     const prefix = `${romanMatch[1].toLowerCase()}.`
     return { prefix, rest: romanMatch[2] ?? '', isRoman: true, hasHtml: false }
   }
 
-  // Chỉ nhận diện tiền tố chữ cái A, B, C... khi có dấu chấm/ngoặc/gạch đi kèm (vd: "A.", "B)") hoặc đứng một mình
   const letterMatch = trimmed.match(/^([A-Za-z])(?:[.)\-:]\s*(.*)|$)$/)
   if (letterMatch && letterMatch[1].length === 1 && /[A-Za-z]/.test(letterMatch[1])) {
     const prefix = `${letterMatch[1].toUpperCase()}.`
@@ -185,13 +182,11 @@ export function SharedContentAnswers({ group }: { group: ExamGroup }) {
 
     const questionMap = new Map(group.questions.map((item) => [item.question_number, item]))
 
-    // Chuẩn hóa trường hợp số câu được in đậm kèm dấu chấm phía sau (vd: <strong>7</strong> ...............)
     const normalized = safe.replace(
       /<(strong|b)>\s*(\[?\s*\d+\s*\]?)\s*<\/\1>((?:\s*[._…]+){3,})/gi,
       '$2$3',
     )
 
-    // Tách riêng thẻ HTML (<...>) và nội dung văn bản để tuyệt đối không làm hỏng thuộc tính của thẻ HTML
     const tokens = normalized.split(/(<[^>]+>)/g)
     const placeholderRegex =
       /\[\s*(\d+)\s*\](?:(?:\s*[._…]+){2,})?|(^|[^\d\w\[])(\d+)(?:(?:\s*[._…]+){3,})/g
@@ -228,6 +223,50 @@ export function SharedContentAnswers({ group }: { group: ExamGroup }) {
   return <div onClick={handleClick} className="question-rich-content" dangerouslySetInnerHTML={{ __html: markup }} />
 }
 
+function QuestionTextBox({
+  questionNumber,
+  inputId,
+  value,
+  matching,
+  onChange,
+}: {
+  questionNumber: number
+  inputId: string
+  value: string
+  matching: boolean
+  onChange: (val: string) => void
+}) {
+  const [focused, setFocused] = useState(false)
+  const showCenteredNumber = !focused && value.length === 0
+
+  return (
+    <div className={`relative ${matching ? 'w-[115px]' : 'w-[18ch] max-w-full'}`}>
+      {showCenteredNumber && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center select-none text-[15px] font-bold text-slate-400"
+        >
+          {questionNumber}
+        </span>
+      )}
+      <input
+        id={inputId}
+        type="text"
+        size={matching ? undefined : 18}
+        aria-label={`Question ${questionNumber}`}
+        value={value}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="off"
+        className={`h-9.5 w-full rounded-md border border-slate-300 bg-white px-3 text-left text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
+          matching ? 'font-semibold' : ''
+        }`}
+      />
+    </div>
+  )
+}
+
 function QuestionControl({
   group,
   question,
@@ -254,28 +293,13 @@ function QuestionControl({
             {question.question_number}
           </span>
         )}
-        <div className={`relative ${matching ? 'w-[115px]' : 'w-[18ch] max-w-full'}`}>
-          {currentValue.length === 0 && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-3 flex items-center select-none text-[15px] font-bold text-slate-400"
-            >
-              {question.question_number}
-            </span>
-          )}
-          <input
-            id={`input-${question.id}`}
-            type="text"
-            size={matching ? undefined : 18}
-            aria-label={`Question ${question.question_number}`}
-            value={currentValue}
-            onChange={(event) => onAnswer(event.target.value)}
-            autoComplete="off"
-            className={`h-9.5 w-full rounded-md border border-slate-300 bg-white px-3 text-left text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
-              matching ? 'font-semibold' : ''
-            }`}
-          />
-        </div>
+        <QuestionTextBox
+          questionNumber={question.question_number}
+          inputId={`input-${question.id}`}
+          value={currentValue}
+          matching={matching}
+          onChange={(val) => onAnswer(val)}
+        />
       </div>
     )
   }
