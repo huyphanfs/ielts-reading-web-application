@@ -41,18 +41,16 @@ function normalizeOptionLabel(item: string): { prefix: string; rest: string; isR
   const hasHtml = /<[a-z][\s\S]*>/i.test(trimmed)
 
   if (hasHtml) {
-    // Strip outer single <p> or <div> wrapper if present
     const unwrapped = trimmed.replace(/^<(p|div)[^>]*>([\s\S]*)<\/\1>$/i, '$2').trim()
     return { prefix: '', rest: unwrapped, isRoman: false, hasHtml: true }
   }
 
-  // Check for Roman numeral prefix: i, ii, iii, etc.
   const romanMatch = trimmed.match(/^([ivx]+)([.)]?)\s*(.*)/i)
   if (romanMatch && ROMAN_NUMERALS.includes(romanMatch[1].toLowerCase())) {
     const prefix = `${romanMatch[1]}.`
     return { prefix: prefix.toLowerCase(), rest: romanMatch[3], isRoman: true, hasHtml: false }
   }
-  // Check for letter prefix: A, B, C, etc.
+
   const letterMatch = trimmed.match(/^([A-Za-z])([.)\-:]?)\s*(.*)/)
   if (letterMatch && letterMatch[1].length === 1 && /[A-Za-z]/.test(letterMatch[1])) {
     const prefix = `${letterMatch[1].toUpperCase()}.`
@@ -133,7 +131,7 @@ function renderSharedOption(group: ExamGroup, opt: string, index: number) {
     return (
       <li
         key={index}
-        className="leading-snug text-[14px] text-slate-800 [&_em]:italic [&_strong]:font-bold [&_u]:underline"
+        className="leading-snug text-[16px] text-slate-800 [&_em]:italic [&_strong]:font-bold [&_u]:underline"
         dangerouslySetInnerHTML={{ __html: sanitizeHtml(rest) }}
       />
     )
@@ -141,14 +139,14 @@ function renderSharedOption(group: ExamGroup, opt: string, index: number) {
 
   if (headings || features || mc) {
     return (
-      <li key={index} className="leading-snug text-[14px] text-slate-800">
+      <li key={index} className="leading-snug text-[16px] text-slate-800">
         {prefix && <span className="font-bold text-slate-900">{prefix} </span>}
         {rest || opt}
       </li>
     )
   }
   return (
-    <li key={index} className="leading-snug text-slate-800">
+    <li key={index} className="leading-snug text-[16px] text-slate-800">
       {opt}
     </li>
   )
@@ -207,7 +205,7 @@ function QuestionControl({
         <input
           id={`input-${question.id}`}
           type="text"
-          size={matching ? undefined : 45}
+          size={matching ? undefined : 18}
           aria-label={`Question ${question.question_number}`}
           placeholder={showPrefixBadge ? undefined : String(question.question_number)}
           value={typeof answer === 'string' ? answer : ''}
@@ -216,7 +214,7 @@ function QuestionControl({
           className={`h-9.5 rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
             matching
               ? 'w-[115px] text-center font-semibold placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
-              : 'w-[45ch] max-w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
+              : 'w-[18ch] max-w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
           }`}
         />
       </div>
@@ -233,7 +231,7 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[14px] leading-[1.45] transition ${
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[16px] leading-[1.5] transition ${
                 checked
                   ? 'font-semibold text-blue-800'
                   : 'text-slate-800 hover:text-slate-950'
@@ -248,7 +246,7 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[4px] flex size-[18px] shrink-0 items-center justify-center rounded-full border transition ${
+                className={`mt-[3px] flex size-[18px] shrink-0 items-center justify-center rounded-full border transition ${
                   checked ? 'border-blue-600 bg-blue-600' : 'border-slate-400 bg-white'
                 }`}
               >
@@ -287,7 +285,7 @@ function QuestionControl({
           return (
             <label
               key={option.value}
-              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[14px] leading-[1.45] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
+              className={`relative flex w-full cursor-pointer items-start gap-2.5 rounded-md py-0 text-[16px] leading-[1.5] transition ${disabled ? 'cursor-not-allowed opacity-50' : ''} ${checked ? 'font-semibold text-blue-800' : 'text-slate-800 hover:text-slate-950'}`}
             >
               <input
                 type="checkbox"
@@ -300,7 +298,7 @@ function QuestionControl({
               />
               <span
                 aria-hidden="true"
-                className={`mt-[4px] flex size-[18px] shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
+                className={`mt-[3px] flex size-[18px] shrink-0 items-center justify-center rounded border transition ${checked ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-400 bg-white'}`}
               >
                 {checked && <Check className="size-3.5" />}
               </span>
@@ -341,7 +339,6 @@ export function QuestionGroupCard({
   const mc = isMultipleChoice(group.question_category)
   const isTextInput = group.input_type === 'text_box' || matching
   const hasInlineAnswers = isTextInput && Boolean(group.shared_content?.match(/\[?\d+\]?/))
-  // Hide shared_options for Matching Information — paragraph letters are in the instruction
   const hideSharedOptions = matchingInfo
   const sharedOptionList = !hideSharedOptions && (matching || isTextInput) ? getSharedOptionList(group) : []
   const isStyledOptionList = matchingHeadings || matchingFeatures || mc
@@ -360,13 +357,19 @@ export function QuestionGroupCard({
             {totalQuestionsCount} {totalQuestionsCount === 1 ? 'question' : 'questions'}
           </span>
         </div>
-        {group.instruction && <div id={`group-${group.id}`} className="question-rich-content mt-2 text-[15px] font-medium text-slate-800" dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }} />}
+        {group.instruction && (
+          <div
+            id={`group-${group.id}`}
+            className={`question-rich-content mt-2 font-medium text-slate-800 ${mc ? 'text-[16px]' : 'text-[15px]'}`}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(group.instruction) }}
+          />
+        )}
       </div>
       <div className="space-y-1 p-3.5 sm:p-4">
         {group.shared_content && <SharedContentAnswers group={group} />}
         {sharedOptionList.length > 0 && (
           <div className={`my-2.5 p-3 ${isStyledOptionList ? 'border-0 bg-white' : 'rounded-lg border border-slate-200 bg-slate-50/80'}`}>
-            <ul className="space-y-1">
+            <ul className="space-y-1.5 text-[16px]">
               {sharedOptionList.map((opt, idx) => renderSharedOption(group, opt, idx))}
             </ul>
           </div>
@@ -417,7 +420,10 @@ export function QuestionGroupCard({
                 </span>
                 <div className="min-w-0 flex-1 space-y-1.5">
                   {question.question_text && (
-                    <div className="question-rich-content text-[15px] font-medium text-slate-900 [&>p]:m-0" dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }} />
+                    <div
+                      className={`question-rich-content font-medium text-slate-900 [&>p]:m-0 ${mc ? 'text-[16px]' : 'text-[15px]'}`}
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(question.question_text) }}
+                    />
                   )}
                   <QuestionControl group={group} question={question} answer={answers[question.id]} onAnswer={(answer) => onAnswer(question.id, answer)} />
                 </div>
