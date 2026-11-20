@@ -121,8 +121,8 @@ button, input, select, textarea { font: inherit; }
 .question-rich-content blockquote { border-left: 3px solid #7dd3fc; padding-left: 0.75rem; color: #64748b; margin: 0.5rem 0; }
 .question-rich-content mark { border-radius: 0.15rem; padding: 0 0.1rem; }
 .question-rich-content ul,
-.question-rich-content ol { padding-left: 1.35rem; margin: 0.45rem 0; }
-.question-rich-content li { margin: 0.3rem 0; }
+.question-rich-content ol { padding-left: 1.35rem; margin: 0.45rem 0; font-size: 16px; }
+.question-rich-content li { margin: 0.3rem 0; font-size: 16px; }
 
 /* Chỗ trống dạng số in đậm + dấu chấm (7....................) trong Summary/Table/Note */
 .inline-blank-marker {
