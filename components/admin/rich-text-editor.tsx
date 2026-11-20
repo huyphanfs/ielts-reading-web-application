@@ -27,6 +27,13 @@ const blockFormats = [
   { label: 'Blockquote', tag: 'blockquote' },
 ]
 
+const textTones = [
+  { label: 'Đen đậm', color: '#0f172a', swatch: 'bg-slate-900' },
+  { label: 'Xám nhạt', color: '#64748b', swatch: 'bg-slate-400' },
+  { label: 'Xanh nhấn', color: '#0284c7', swatch: 'bg-sky-600' },
+  { label: 'Đỏ nhấn', color: '#dc2626', swatch: 'bg-red-600' },
+] as const
+
 export function RichTextEditor({
   value,
   onChange,
@@ -125,6 +132,22 @@ export function RichTextEditor({
       <ToolbarButton label="In nghiêng" icon={<Italic className="size-4" />} onClick={() => command('italic')} />
       <ToolbarButton label="Gạch chân" icon={<Underline className="size-4" />} onClick={() => command('underline')} />
       <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
+      <div className="flex items-center gap-1 px-1" role="group" aria-label="Màu chữ đậm nhạt">
+        {textTones.map((tone) => (
+          <button
+            key={tone.color}
+            type="button"
+            title={tone.label}
+            aria-label={tone.label}
+            onMouseDown={(event) => {
+              event.preventDefault()
+              command('foreColor', tone.color)
+            }}
+            className={`size-4 rounded-full border border-slate-300 transition hover:scale-110 ${tone.swatch}`}
+          />
+        ))}
+      </div>
+      <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
       <ToolbarButton label="Căn trái" icon={<AlignLeft className="size-4" />} onClick={() => command('justifyLeft')} />
       <ToolbarButton label="Căn giữa" icon={<AlignCenter className="size-4" />} onClick={() => command('justifyCenter')} />
       <ToolbarButton label="Căn đều" icon={<AlignJustify className="size-4" />} onClick={() => command('justifyFull')} />
@@ -148,6 +171,87 @@ export function RichTextEditor({
     />
     {message && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">{message}</p>}
   </div>
+}
+
+export function MiniRichTextEditor({
+  value,
+  onChange,
+  placeholder,
+  label,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  label: string
+}) {
+  const editorRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || document.activeElement === editor || editor.innerHTML === value) return
+    editor.innerHTML = sanitizeHtml(value)
+  }, [value])
+
+  const command = (name: string, argument?: string) => {
+    editorRef.current?.focus()
+    document.execCommand(name, false, argument)
+    if (editorRef.current) onChange(editorRef.current.innerHTML)
+  }
+
+  return (
+    <div className="flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white focus-within:border-sky-400">
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-100 bg-slate-50/80 px-1.5 py-1">
+        <button
+          type="button"
+          title="In đậm"
+          aria-label="In đậm"
+          onMouseDown={(e) => { e.preventDefault(); command('bold') }}
+          className="flex size-6 items-center justify-center rounded text-slate-600 hover:bg-sky-50 hover:text-sky-700"
+        >
+          <Bold className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title="In nghiêng"
+          aria-label="In nghiêng"
+          onMouseDown={(e) => { e.preventDefault(); command('italic') }}
+          className="flex size-6 items-center justify-center rounded text-slate-600 hover:bg-sky-50 hover:text-sky-700"
+        >
+          <Italic className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title="Gạch chân"
+          aria-label="Gạch chân"
+          onMouseDown={(e) => { e.preventDefault(); command('underline') }}
+          className="flex size-6 items-center justify-center rounded text-slate-600 hover:bg-sky-50 hover:text-sky-700"
+        >
+          <Underline className="size-3.5" />
+        </button>
+        <span className="mx-1 h-4 w-px bg-slate-200" />
+        {textTones.map((tone) => (
+          <button
+            key={tone.color}
+            type="button"
+            title={tone.label}
+            aria-label={tone.label}
+            onMouseDown={(e) => { e.preventDefault(); command('foreColor', tone.color) }}
+            className={`mx-0.5 size-3.5 rounded-full border border-slate-300 transition hover:scale-110 ${tone.swatch}`}
+          />
+        ))}
+      </div>
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-label={label}
+        data-placeholder={placeholder}
+        onInput={(event) => onChange(event.currentTarget.innerHTML)}
+        className="min-h-[38px] px-3 py-1.5 text-sm text-slate-800 outline-none empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] [&_em]:italic [&_strong]:font-bold [&_u]:underline"
+      />
+    </div>
+  )
 }
 
 function ToolbarButton({ label, icon, onClick, disabled = false }: { label: string; icon: React.ReactNode; onClick: () => void; disabled?: boolean }) {
