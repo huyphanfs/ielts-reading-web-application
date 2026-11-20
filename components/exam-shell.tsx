@@ -3,25 +3,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
-  Bold,
+  ChevronDown,
   Clock3,
   Eraser,
   GripVertical,
-  Italic,
   Pause,
-  Pencil,
+  Pen,
   Play,
   Send,
-  StickyNote,
-  TextSelect,
   Trash2,
-  X,
+  Type,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { AnnotationToolbar, DRAW_COLORS, HIGHLIGHT_COLORS, type ToolMode } from '@/components/exam/annotation-toolbar'
 import { QuestionGroupCard } from '@/components/exam/question-group'
-import { StudyNotesDrawer, type NoteAnchorPosition } from '@/components/exam/study-notes-drawer'
 import { useAuth } from '@/components/auth-provider'
 import { applyHighlight as applyAnnotation, getHighlightIdsInRange, getTextOffsets, removeHighlight } from '@/lib/text-annotations'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -34,14 +30,12 @@ type TextSelection = {
   text: string
   top: number
   left: number
-  rectTop: number
   pane: 'passage' | 'questions'
   passageId: string
   startOffset: number
   endOffset: number
   highlightIds: string[]
 }
-type NoteContext = { annotationId: string | null; passagePart: 1 | 2 | 3; pane: 'passage' | 'questions'; color: string }
 
 type DrawStroke = {
   id: string
@@ -51,40 +45,29 @@ type DrawStroke = {
   points: { x: number; y: number }[]
 }
 
-type CanvasTextNote = {
+type EdgeTextBox = {
   id: string
   pane: 'passage' | 'questions'
   passageId: string
   x: number
   y: number
   width: number
-  height: number
-  html: string
-  plainText: string
+  text: string
   fontSize: number
+  letterSpacing: number
   textColor: string
 }
 
-type LocalRect = {
-  pane: 'passage' | 'questions'
-  x: number
-  y: number
-  width: number
-  height: number
-}
+// 0.75 cm at 96 DPI = (0.75 * 96) / 2.54 = 28.35 px radius (1.5 cm diameter)
+const ERASER_RADIUS_PX = (0.75 * 96) / 2.54
 
-// 1 cm at 96 DPI = 37.795px -> radius = 18.9px (~19px)
-const ERASER_RADIUS_PX = 19
-
-const NOTE_TEXT_COLORS = [
+const EDGE_TEXT_COLORS = [
   { name: 'Đỏ', value: '#DC2626' },
-  { name: 'Xám', value: '#64748B' },
+  { name: 'Xanh dương', value: '#0284C7' },
   { name: 'Xanh lá', value: '#16A34A' },
   { name: 'Cam', value: '#EA580C' },
-  { name: 'Xanh biển', value: '#0284C7' },
+  { name: 'Đen', value: '#0F172A' },
 ] as const
-
-const NOTE_FONT_SIZES = [12, 14, 16, 18, 20, 24] as const
 
 function densifyPoints(points: { x: number; y: number }[], step = 4) {
   if (points.length <= 1) return points
@@ -140,13 +123,6 @@ function rectIntersectsCircle(rect: DOMRect, cx: number, cy: number, radius: num
   return Math.hypot(cx - closestX, cy - closestY) <= radius
 }
 
-function rectsOverlap(
-  a: { left: number; top: number; right: number; bottom: number },
-  b: { left: number; top: number; right: number; bottom: number },
-) {
-  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
-}
-
 function pointsToPath(points: { x: number; y: number }[]) {
   if (!points.length) return ''
   if (points.length === 1) {
@@ -184,263 +160,259 @@ function countWords(html: string) {
   return plainText.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length
 }
 
-function TransparentNoteBox({
+function EdgeStyleTextBox({
   box,
-  autoFocus,
+  isSelected,
+  onSelect,
   onChange,
   onDelete,
 }: {
-  box: CanvasTextNote
-  autoFocus: boolean
-  onChange: (id: string, patch: Partial<CanvasTextNote>) => void
+  box: EdgeTextBox
+  isSelected: boolean
+  onSelect: (id: string) => void
+  onChange: (id: string, patch: Partial<EdgeTextBox>) => void
   onDelete: (id: string) => void
 }) {
-  const editorRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const draggingRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
-  const resizingRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
+  const resizingRef = useRef<{ startX: number; origW: number } | null>(null)
+  const [colorMenuOpen, setColorMenuOpen] = useState(false)
 
   useEffect(() => {
-    const el = editorRef.current
+    const el = textareaRef.current
     if (!el) return
-    if (box.html && el.innerHTML !== box.html) {
-      el.innerHTML = sanitizeHtml(box.html)
-    }
-    if (autoFocus) {
-      el.focus()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(36, el.scrollHeight)}px`
+  }, [box.text, box.width, box.fontSize, box.letterSpacing])
 
-  const applyFormat = (command: string, value?: string) => {
-    const el = editorRef.current
-    if (!el) return
-    el.focus()
-    document.execCommand(command, false, value)
-    onChange(box.id, {
-      html: el.innerHTML,
-      plainText: el.innerText,
-      ...(command === 'foreColor' && value ? { textColor: value } : {}),
-    })
-  }
-
-  const changeFontSize = (delta: -1 | 1) => {
-    const currentIdx = NOTE_FONT_SIZES.indexOf(box.fontSize as (typeof NOTE_FONT_SIZES)[number])
-    const baseIdx = currentIdx >= 0 ? currentIdx : 1
-    const nextIdx = Math.max(0, Math.min(NOTE_FONT_SIZES.length - 1, baseIdx + delta))
-    const nextSize = NOTE_FONT_SIZES[nextIdx]
-
-    const sel = window.getSelection()
-    const el = editorRef.current
-    if (el && sel && sel.rangeCount > 0 && !sel.isCollapsed && el.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0)
-      const span = document.createElement('span')
-      span.style.fontSize = `${nextSize}px`
-      try {
-        range.surroundContents(span)
-      } catch {
-        const frag = range.extractContents()
-        span.appendChild(frag)
-        range.insertNode(span)
-      }
-      onChange(box.id, { html: el.innerHTML, plainText: el.innerText, fontSize: nextSize })
+  useEffect(() => {
+    if (isSelected) {
+      textareaRef.current?.focus()
     } else {
-      onChange(box.id, { fontSize: nextSize })
+      setColorMenuOpen(false)
     }
-  }
+  }, [isSelected])
 
   return (
     <div
+      data-edge-textbox-id={box.id}
       style={{
         left: box.x,
         top: box.y,
         width: box.width,
-        height: box.height,
       }}
-      onPointerDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        onSelect(box.id)
+      }}
       onMouseUp={(e) => e.stopPropagation()}
       onKeyUp={(e) => e.stopPropagation()}
-      className="group pointer-events-auto absolute z-30 flex flex-col rounded-lg border border-transparent bg-transparent transition-colors hover:border-sky-300/80 focus-within:border-sky-400"
+      className="pointer-events-auto absolute z-30 select-none"
     >
-      {/* Floating compact format & drag bar (no NOTE title) */}
-      <div className="flex h-6 shrink-0 items-center justify-between gap-1 rounded-t-lg bg-white/90 px-1.5 opacity-0 shadow-xs backdrop-blur-xs transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <div
-          title="Kéo để di chuyển"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return
-            e.stopPropagation()
-            e.currentTarget.setPointerCapture(e.pointerId)
-            draggingRef.current = {
-              startX: e.clientX,
-              startY: e.clientY,
-              origX: box.x,
-              origY: box.y,
-            }
-          }}
-          onPointerMove={(e) => {
-            const drag = draggingRef.current
-            if (!drag) return
-            onChange(box.id, {
-              x: Math.max(0, drag.origX + (e.clientX - drag.startX)),
-              y: Math.max(0, drag.origY + (e.clientY - drag.startY)),
-            })
-          }}
-          onPointerUp={(e) => {
-            if (draggingRef.current) {
-              draggingRef.current = null
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId)
-              } catch {
-                // ignore
+      {/* Edge-style dashed blue container when active; transparent borderless text when inactive */}
+      <div
+        className={`relative flex items-stretch transition-colors ${
+          isSelected
+            ? 'rounded-[3px] border-2 border-dashed border-[#0078D4] bg-white/85 shadow-xs'
+            : 'border-2 border-transparent bg-transparent hover:border-dashed hover:border-sky-300'
+        }`}
+      >
+        {/* Left blue drag handle */}
+        {isSelected && (
+          <div
+            title="Kéo để di chuyển"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              e.stopPropagation()
+              e.currentTarget.setPointerCapture(e.pointerId)
+              draggingRef.current = {
+                startX: e.clientX,
+                startY: e.clientY,
+                origX: box.x,
+                origY: box.y,
               }
-            }
-          }}
-          className="flex cursor-grab items-center text-slate-400 hover:text-slate-700 active:cursor-grabbing"
-        >
-          <GripVertical className="size-3.5" />
-        </div>
-
-        {/* Font size down / up */}
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            title="Giảm cỡ chữ"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              changeFontSize(-1)
             }}
-            className="flex h-5 items-center rounded px-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100 hover:text-sky-700"
+            onPointerMove={(e) => {
+              const drag = draggingRef.current
+              if (!drag) return
+              onChange(box.id, {
+                x: Math.max(0, drag.origX + (e.clientX - drag.startX)),
+                y: Math.max(0, drag.origY + (e.clientY - drag.startY)),
+              })
+            }}
+            onPointerUp={(e) => {
+              if (draggingRef.current) {
+                draggingRef.current = null
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                } catch {
+                  // ignore
+                }
+              }
+            }}
+            className="flex w-4 shrink-0 cursor-grab items-center justify-center bg-[#0078D4] text-white active:cursor-grabbing"
           >
-            A-
-          </button>
-          <span className="text-[10px] tabular-nums text-slate-400">{box.fontSize}</span>
+            <GripVertical className="size-3" />
+          </div>
+        )}
+
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          aria-label="Add text"
+          placeholder="Start typing here..."
+          value={box.text}
+          onFocus={() => onSelect(box.id)}
+          onChange={(e) => onChange(box.id, { text: e.target.value })}
+          style={{
+            fontSize: `${box.fontSize}px`,
+            letterSpacing: `${box.letterSpacing}px`,
+            color: box.textColor,
+          }}
+          className="min-h-[36px] w-full flex-1 resize-none overflow-hidden bg-transparent px-2.5 py-1.5 font-sans leading-snug outline-none placeholder:text-slate-400"
+        />
+
+        {/* Right circular width resize handle */}
+        {isSelected && (
+          <div
+            title="Kéo để thay đổi chiều rộng"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return
+              e.stopPropagation()
+              e.currentTarget.setPointerCapture(e.pointerId)
+              resizingRef.current = {
+                startX: e.clientX,
+                origW: box.width,
+              }
+            }}
+            onPointerMove={(e) => {
+              const res = resizingRef.current
+              if (!res) return
+              onChange(box.id, {
+                width: Math.max(140, res.origW + (e.clientX - res.startX)),
+              })
+            }}
+            onPointerUp={(e) => {
+              if (resizingRef.current) {
+                resizingRef.current = null
+                try {
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                } catch {
+                  // ignore
+                }
+              }
+            }}
+            className="absolute -right-2 top-1/2 size-3.5 -translate-y-1/2 cursor-ew-resize rounded-full border-2 border-[#0078D4] bg-white shadow-xs"
+          />
+        )}
+      </div>
+
+      {/* Edge-style floating toolbar below the text box */}
+      {isSelected && (
+        <div
+          onMouseDown={(e) => e.preventDefault()}
+          className="relative mt-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-lg"
+        >
+          {/* Text color picker button */}
+          <div className="relative">
+            <button
+              type="button"
+              title="Màu chữ"
+              onClick={() => setColorMenuOpen((prev) => !prev)}
+              className="flex h-7 items-center gap-1 rounded px-1.5 text-slate-700 hover:bg-slate-100"
+            >
+              <span className="flex flex-col items-center leading-none">
+                <span className="text-[11px] font-bold">A</span>
+                <span
+                  className="mt-0.5 h-1 w-3.5 rounded-xs border border-slate-300"
+                  style={{ backgroundColor: box.textColor }}
+                />
+              </span>
+              <ChevronDown className="size-3 text-slate-500" />
+            </button>
+
+            {colorMenuOpen && (
+              <div className="absolute left-0 top-full z-40 mt-1 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                {EDGE_TEXT_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    title={c.name}
+                    aria-label={c.name}
+                    onClick={() => {
+                      onChange(box.id, { textColor: c.value })
+                      setColorMenuOpen(false)
+                    }}
+                    className={`size-5 rounded-full border border-slate-300 transition hover:scale-110 ${
+                      box.textColor === c.value ? 'ring-2 ring-[#0078D4] ring-offset-1' : ''
+                    }`}
+                    style={{ backgroundColor: c.value }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <span className="h-4 w-px bg-slate-200" />
+
+          {/* Increase font size (A^) */}
           <button
             type="button"
             title="Tăng cỡ chữ"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              changeFontSize(1)
-            }}
-            className="flex h-5 items-center rounded px-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100 hover:text-sky-700"
+            onClick={() => onChange(box.id, { fontSize: Math.min(32, box.fontSize + 2) })}
+            className="flex h-7 items-center rounded px-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
-            A+
+            A<sup className="text-[9px] font-bold">^</sup>
           </button>
-        </div>
 
-        <span className="h-3.5 w-px bg-slate-200" />
-
-        {/* Bold & Italic */}
-        <div className="flex items-center gap-0.5">
+          {/* Decrease font size (Aˇ) */}
           <button
             type="button"
-            title="In đậm (Bold)"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              applyFormat('bold')
-            }}
-            className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-sky-700"
+            title="Giảm cỡ chữ"
+            onClick={() => onChange(box.id, { fontSize: Math.max(11, box.fontSize - 2) })}
+            className="flex h-7 items-center rounded px-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
           >
-            <Bold className="size-3" />
+            A<sup className="text-[9px] font-bold">v</sup>
           </button>
+
+          <span className="h-4 w-px bg-slate-200" />
+
+          {/* Increase text spacing (AV↔) */}
           <button
             type="button"
-            title="In nghiêng (Italic)"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              applyFormat('italic')
-            }}
-            className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100 hover:text-sky-700"
+            title="Tăng khoảng cách chữ"
+            onClick={() => onChange(box.id, { letterSpacing: Math.min(8, Number((box.letterSpacing + 0.5).toFixed(1))) })}
+            className="flex h-7 flex-col items-center justify-center rounded px-1.5 text-[10px] font-semibold leading-none text-slate-700 hover:bg-slate-100"
           >
-            <Italic className="size-3" />
+            <span>AV</span>
+            <span className="text-[9px] leading-none">↔</span>
+          </button>
+
+          {/* Decrease text spacing (AV→←) */}
+          <button
+            type="button"
+            title="Giảm khoảng cách chữ"
+            onClick={() => onChange(box.id, { letterSpacing: Math.max(0, Number((box.letterSpacing - 0.5).toFixed(1))) })}
+            className="flex h-7 flex-col items-center justify-center rounded px-1.5 text-[10px] font-semibold leading-none text-slate-700 hover:bg-slate-100"
+          >
+            <span>AV</span>
+            <span className="text-[9px] leading-none">→←</span>
+          </button>
+
+          <span className="h-4 w-px bg-slate-200" />
+
+          {/* Delete button */}
+          <button
+            type="button"
+            title="Xóa"
+            aria-label="Xóa hộp văn bản"
+            onClick={() => onDelete(box.id)}
+            className="flex size-7 items-center justify-center rounded text-slate-600 hover:bg-rose-50 hover:text-rose-600"
+          >
+            <Trash2 className="size-3.5" />
           </button>
         </div>
-
-        <span className="h-3.5 w-px bg-slate-200" />
-
-        {/* 5 Text Colors: Đỏ, Xám, Xanh lá, Cam, Xanh biển */}
-        <div className="flex items-center gap-1">
-          {NOTE_TEXT_COLORS.map((c) => (
-            <button
-              key={c.value}
-              type="button"
-              title={c.name}
-              aria-label={`Màu chữ ${c.name}`}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                applyFormat('foreColor', c.value)
-              }}
-              className={`size-3 rounded-full border border-slate-300 transition hover:scale-125 ${
-                box.textColor === c.value ? 'ring-1 ring-slate-700 ring-offset-1' : ''
-              }`}
-              style={{ backgroundColor: c.value }}
-            />
-          ))}
-        </div>
-
-        <button
-          type="button"
-          aria-label="Xóa khung note"
-          title="Xóa khung note"
-          onClick={() => onDelete(box.id)}
-          className="ml-0.5 flex size-4 items-center justify-center rounded text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-        >
-          <X className="size-3" />
-        </button>
-      </div>
-
-      {/* Transparent editable area */}
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label="Ghi chú trong suốt"
-        data-placeholder="Nhập ghi chú..."
-        style={{ fontSize: `${box.fontSize}px`, color: box.textColor }}
-        onInput={(e) => {
-          onChange(box.id, {
-            html: e.currentTarget.innerHTML,
-            plainText: e.currentTarget.innerText,
-          })
-        }}
-        className="min-h-0 w-full flex-1 overflow-y-auto bg-transparent px-2 py-1 leading-snug outline-none empty:before:pointer-events-none empty:before:text-slate-400/80 empty:before:content-[attr(data-placeholder)]"
-      />
-
-      {/* Resize corner handle */}
-      <div
-        title="Kéo để đổi kích thước"
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          e.stopPropagation()
-          e.currentTarget.setPointerCapture(e.pointerId)
-          resizingRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            origW: box.width,
-            origH: box.height,
-          }
-        }}
-        onPointerMove={(e) => {
-          const res = resizingRef.current
-          if (!res) return
-          onChange(box.id, {
-            width: Math.max(180, res.origW + (e.clientX - res.startX)),
-            height: Math.max(64, res.origH + (e.clientY - res.startY)),
-          })
-        }}
-        onPointerUp={(e) => {
-          if (resizingRef.current) {
-            resizingRef.current = null
-            try {
-              e.currentTarget.releasePointerCapture(e.pointerId)
-            } catch {
-              // ignore
-            }
-          }
-        }}
-        className="absolute bottom-0 right-0 size-3.5 cursor-nwse-resize opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-      >
-        <span className="pointer-events-none absolute bottom-1 right-1 block size-1.5 border-b-2 border-r-2 border-sky-500/80" />
-      </div>
+      )}
     </div>
   )
 }
@@ -464,30 +436,20 @@ export function ExamShell({
   const [pauseReason, setPauseReason] = useState<PauseReason>(null)
   const [split, setSplit] = useState(60)
   const [submitting, setSubmitting] = useState(false)
-  const [notesOpen, setNotesOpen] = useState(false)
-  const [noteAnchor, setNoteAnchor] = useState<NoteAnchorPosition>(null)
-  const [notes, setNotes] = useState<StudyNote[]>([])
-  const [noteDraft, setNoteDraft] = useState('')
-  const [quoteDraft, setQuoteDraft] = useState('')
   const [selectedColor, setSelectedColor] = useState<string>(HIGHLIGHT_COLORS[0].value)
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
-  const [linkedNoteContext, setLinkedNoteContext] = useState<NoteContext | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<TextSelection | null>(null)
   const [toolMode, setToolMode] = useState<ToolMode>('select')
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLORS[0].value)
   const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([])
 
-  // On-page drawn transparent Textbox Notes
-  const [canvasTextNotes, setCanvasTextNotes] = useState<CanvasTextNote[]>([])
-  const [drawingNoteRect, setDrawingNoteRect] = useState<LocalRect | null>(null)
-  const [focusedNoteBoxId, setFocusedNoteBoxId] = useState<string | null>(null)
-  const noteDrawStartRef = useRef<{ pane: 'passage' | 'questions'; x: number; y: number } | null>(null)
+  // Edge-style Add Text boxes
+  const [edgeTextBoxes, setEdgeTextBoxes] = useState<EdgeTextBox[]>([])
+  const [selectedTextBoxId, setSelectedTextBoxId] = useState<string | null>(null)
 
-  // 1cm circular eraser + rectangle drag eraser state
+  // 0.75cm radius circular eraser state
   const [eraserClientPos, setEraserClientPos] = useState<{ x: number; y: number } | null>(null)
-  const [eraserRect, setEraserRect] = useState<LocalRect | null>(null)
-  const eraserDragStartRef = useRef<{ pane: 'passage' | 'questions'; x: number; y: number } | null>(null)
+  const isErasingRef = useRef(false)
 
   const passageRef = useRef<HTMLDivElement>(null)
   const questionRef = useRef<HTMLDivElement>(null)
@@ -520,21 +482,8 @@ export function ExamShell({
     if (submittedRef.current || submitting) return
     submittedRef.current = true
     setSubmitting(true)
-    const boxStudyNotes: StudyNote[] = canvasTextNotes
-      .filter((box) => box.plainText.trim().length > 0)
-      .map((box) => {
-        const passage = exam.passages.find((p) => p.id === box.passageId)
-        return {
-          id: `box-${box.id}`,
-          quote: '',
-          text: box.plainText.trim(),
-          color: box.textColor,
-          passage_part: passage?.passage_part,
-          pane: box.pane,
-        }
-      })
-    await onSubmit(answers, elapsed, [...notes, ...boxStudyNotes])
-  }, [answers, canvasTextNotes, elapsed, exam.passages, notes, onSubmit, submitting])
+    await onSubmit(answers, elapsed, [])
+  }, [answers, elapsed, onSubmit, submitting])
 
   useEffect(() => {
     pauseRef.current = pauseReason
@@ -588,6 +537,7 @@ export function ExamShell({
 
   useEffect(() => {
     setSelection(null)
+    setSelectedTextBoxId(null)
   }, [currentPassage.id])
 
   const answeredCount = useMemo(
@@ -622,7 +572,6 @@ export function ExamShell({
       text,
       top: Math.max(8, rect.top - 42),
       left: Math.max(120, Math.min(window.innerWidth - 120, rect.left + rect.width / 2)),
-      rectTop: rect.top,
       pane,
       passageId: currentPassage.id,
       ...offsets,
@@ -644,13 +593,6 @@ export function ExamShell({
       endOffset: selection.endOffset,
     }
     setAnnotations((current) => [...current.filter((item) => !selection.highlightIds.includes(item.id)), annotation])
-    setNotes((current) =>
-      current.map((note) =>
-        selection.highlightIds.includes(note.annotation_id ?? '')
-          ? { ...note, annotation_id: annotation.id, color }
-          : note,
-      ),
-    )
     setSelectedColor(color)
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -661,108 +603,8 @@ export function ExamShell({
     const root = rootForPane(selection.pane)
     selection.highlightIds.forEach((id) => removeHighlight(root, id))
     setAnnotations((current) => current.filter((item) => !selection.highlightIds.includes(item.id)))
-    setNotes((current) => current.filter((note) => !selection.highlightIds.includes(note.annotation_id ?? '')))
     window.getSelection()?.removeAllRanges()
     setSelection(null)
-  }
-
-  const beginLinkedNote = () => {
-    if (!selection) return
-    const linkedAnnotation = annotations.find((item) => selection.highlightIds.includes(item.id))
-    const annotationId = linkedAnnotation?.id ?? crypto.randomUUID()
-    const color = linkedAnnotation?.color ?? selectedColor
-
-    if (!linkedAnnotation) {
-      setAnnotations((current) => [
-        ...current,
-        {
-          id: annotationId,
-          color,
-          pane: selection.pane,
-          passageId: selection.passageId,
-          quote: selection.text,
-          startOffset: selection.startOffset,
-          endOffset: selection.endOffset,
-        },
-      ])
-    }
-
-    setNoteAnchor({ top: selection.rectTop, left: selection.left })
-    setLinkedNoteContext({ annotationId, passagePart: currentPassage.passage_part, pane: selection.pane, color })
-    setSelectedColor(color)
-    setQuoteDraft(selection.text)
-    setNoteDraft('')
-    setEditingNoteId(null)
-    setNotesOpen(true)
-    window.getSelection()?.removeAllRanges()
-    setSelection(null)
-  }
-
-  const startNewNote = () => {
-    setNoteAnchor(null)
-    setLinkedNoteContext(null)
-    setQuoteDraft('')
-    setNoteDraft('')
-    setEditingNoteId(null)
-    setNotesOpen(true)
-  }
-
-  const saveNote = () => {
-    if (!noteDraft.trim() && !quoteDraft.trim()) return
-    const note: StudyNote = {
-      id: editingNoteId ?? crypto.randomUUID(),
-      quote: quoteDraft.trim(),
-      text: noteDraft.trim(),
-      color: linkedNoteContext?.color ?? selectedColor,
-      ...(linkedNoteContext
-        ? {
-            annotation_id: linkedNoteContext.annotationId ?? undefined,
-            passage_part: linkedNoteContext.passagePart,
-            pane: linkedNoteContext.pane,
-          }
-        : {}),
-    }
-    setNotes((current) =>
-      editingNoteId ? current.map((item) => (item.id === editingNoteId ? note : item)) : [note, ...current],
-    )
-    setNoteDraft('')
-    setQuoteDraft('')
-    setEditingNoteId(null)
-    setLinkedNoteContext(null)
-    setNotesOpen(false)
-  }
-
-  const editNote = (note: StudyNote) => {
-    setEditingNoteId(note.id)
-    setLinkedNoteContext(
-      note.passage_part && note.pane
-        ? {
-            annotationId: note.annotation_id ?? null,
-            passagePart: note.passage_part,
-            pane: note.pane,
-            color: note.color ?? selectedColor,
-          }
-        : null,
-    )
-    setQuoteDraft(note.quote)
-    setNoteDraft(note.text)
-    setSelectedColor(note.color ?? HIGHLIGHT_COLORS[0].value)
-  }
-
-  const deleteNote = (noteId: string) => {
-    const targetNote = notes.find((item) => item.id === noteId)
-    if (targetNote?.annotation_id) {
-      const ann = annotations.find((a) => a.id === targetNote.annotation_id)
-      if (ann) removeHighlight(rootForPane(ann.pane), ann.id)
-      setAnnotations((current) => current.filter((a) => a.id !== targetNote.annotation_id))
-    }
-    setNotes((current) => current.filter((item) => item.id !== noteId))
-    if (editingNoteId === noteId) {
-      setEditingNoteId(null)
-      setLinkedNoteContext(null)
-      setQuoteDraft('')
-      setNoteDraft('')
-    }
   }
 
   const updateSplit = (clientX: number) => {
@@ -807,14 +649,14 @@ export function ExamShell({
 
   const passageStrokes = drawStrokes.filter((s) => s.pane === 'passage' && s.passageId === currentPassage.id)
   const questionStrokes = drawStrokes.filter((s) => s.pane === 'questions' && s.passageId === currentPassage.id)
-  const passageTextNotes = canvasTextNotes.filter((n) => n.pane === 'passage' && n.passageId === currentPassage.id)
-  const questionTextNotes = canvasTextNotes.filter((n) => n.pane === 'questions' && n.passageId === currentPassage.id)
+  const passageTextBoxes = edgeTextBoxes.filter((n) => n.pane === 'passage' && n.passageId === currentPassage.id)
+  const questionTextBoxes = edgeTextBoxes.filter((n) => n.pane === 'questions' && n.passageId === currentPassage.id)
 
   const handleToolChange = useCallback((mode: ToolMode) => {
     setToolMode((prev) => (prev === mode && mode !== 'select' ? 'select' : mode))
     setEraserClientPos(null)
-    setEraserRect(null)
-    setDrawingNoteRect(null)
+    isErasingRef.current = false
+    setSelectedTextBoxId(null)
     if (mode !== 'select') {
       setSelection(null)
       window.getSelection()?.removeAllRanges()
@@ -858,84 +700,50 @@ export function ExamShell({
     }
   }
 
-  // Note Textbox drawing handlers
-  const handleNoteBoxDrawStart = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
-    if (toolMode !== 'note') return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    const { x, y } = getLocalPoint(e.currentTarget, e)
-    noteDrawStartRef.current = { pane, x, y }
-    setDrawingNoteRect({ pane, x, y, width: 0, height: 0 })
-  }
-
-  const handleNoteBoxDrawMove = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
-    if (toolMode !== 'note' || !noteDrawStartRef.current || noteDrawStartRef.current.pane !== pane) return
-    const { x, y } = getLocalPoint(e.currentTarget, e)
-    const start = noteDrawStartRef.current
-    setDrawingNoteRect({
-      pane,
-      x: Math.min(start.x, x),
-      y: Math.min(start.y, y),
-      width: Math.abs(x - start.x),
-      height: Math.abs(y - start.y),
-    })
-  }
-
-  const handleNoteBoxDrawEnd = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
-    if (toolMode !== 'note' || !noteDrawStartRef.current || noteDrawStartRef.current.pane !== pane) return
+  // Edge Add Text placement handler
+  const handleAddTextClick = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (toolMode !== 'text') return
+    e.stopPropagation()
     const { x, y, rect } = getLocalPoint(e.currentTarget, e)
-    const start = noteDrawStartRef.current
-    noteDrawStartRef.current = null
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    } catch {
-      // ignore
-    }
+    const defaultWidth = 220
+    const clampedX = Math.max(8, Math.min(Math.max(8, rect.width - defaultWidth - 16), x))
+    const clampedY = Math.max(8, y - 14)
 
-    const rawX = Math.min(start.x, x)
-    const rawY = Math.min(start.y, y)
-    const rawW = Math.abs(x - start.x)
-    const rawH = Math.abs(y - start.y)
-
-    const width = rawW < 16 && rawH < 16 ? 250 : Math.max(200, rawW)
-    const height = rawW < 16 && rawH < 16 ? 90 : Math.max(72, rawH)
-    const clampedX = Math.max(8, Math.min(Math.max(8, rect.width - width - 8), rawX))
-    const clampedY = Math.max(8, rawY)
-
-    const newNoteBox: CanvasTextNote = {
+    const newBox: EdgeTextBox = {
       id: crypto.randomUUID(),
       pane,
       passageId: currentPassage.id,
       x: clampedX,
       y: clampedY,
-      width,
-      height,
-      html: '',
-      plainText: '',
-      fontSize: 14,
+      width: defaultWidth,
+      text: '',
+      fontSize: 15,
+      letterSpacing: 0,
       textColor: '#DC2626',
     }
 
-    setCanvasTextNotes((prev) => [...prev, newNoteBox])
-    setDrawingNoteRect(null)
-    setFocusedNoteBoxId(newNoteBox.id)
+    setEdgeTextBoxes((prev) => [...prev, newBox])
+    setSelectedTextBoxId(newBox.id)
     setToolMode('select')
   }
 
-  const updateCanvasTextNote = useCallback((id: string, patch: Partial<CanvasTextNote>) => {
-    setCanvasTextNotes((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  const updateEdgeTextBox = useCallback((id: string, patch: Partial<EdgeTextBox>) => {
+    setEdgeTextBoxes((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
   }, [])
 
-  const deleteCanvasTextNote = useCallback((id: string) => {
-    setCanvasTextNotes((prev) => prev.filter((item) => item.id !== id))
+  const deleteEdgeTextBox = useCallback((id: string) => {
+    setEdgeTextBoxes((prev) => prev.filter((item) => item.id !== id))
+    setSelectedTextBoxId((prev) => (prev === id ? null : prev))
   }, [])
 
-  // Eraser logic: 1cm circular erasure + rectangular drag erasure
+  // Eraser: 0.75cm radius circle erases strokes, text boxes, and highlights on sweep
   const eraseAtCircle = useCallback(
     (pane: 'passage' | 'questions', clientX: number, clientY: number, containerRect: DOMRect) => {
       const lx = clientX - containerRect.left
       const ly = clientY - containerRect.top
       const R = ERASER_RADIUS_PX
 
+      // 1. Erase intersecting freehand Draw strokes
       setDrawStrokes((prev) =>
         prev.flatMap((stroke) => {
           if (stroke.pane !== pane || stroke.passageId !== currentPassage.id) return [stroke]
@@ -943,6 +751,7 @@ export function ExamShell({
         }),
       )
 
+      // 2. Erase intersecting Highlights
       const root = rootForPane(pane)
       if (root) {
         const marks = root.querySelectorAll<HTMLElement>('[data-highlight-id]')
@@ -961,72 +770,17 @@ export function ExamShell({
         if (idsToRemove.size > 0) {
           idsToRemove.forEach((id) => removeHighlight(root, id))
           setAnnotations((prev) => prev.filter((a) => !idsToRemove.has(a.id)))
-          setNotes((prev) => prev.filter((n) => !idsToRemove.has(n.annotation_id ?? '')))
         }
       }
 
-      setCanvasTextNotes((prev) =>
+      // 3. Erase intersecting Add Text boxes
+      setEdgeTextBoxes((prev) =>
         prev.filter((box) => {
           if (box.pane !== pane || box.passageId !== currentPassage.id) return true
+          const approxHeight = Math.max(40, box.fontSize * 2.2)
           const closestX = Math.max(box.x, Math.min(lx, box.x + box.width))
-          const closestY = Math.max(box.y, Math.min(ly, box.y + box.height))
+          const closestY = Math.max(box.y, Math.min(ly, box.y + approxHeight))
           return Math.hypot(lx - closestX, ly - closestY) > R
-        }),
-      )
-    },
-    [currentPassage.id, rootForPane],
-  )
-
-  const eraseInRect = useCallback(
-    (pane: 'passage' | 'questions', localRect: LocalRect, containerRect: DOMRect) => {
-      const minX = localRect.x
-      const maxX = localRect.x + localRect.width
-      const minY = localRect.y
-      const maxY = localRect.y + localRect.height
-
-      setDrawStrokes((prev) =>
-        prev.flatMap((stroke) => {
-          if (stroke.pane !== pane || stroke.passageId !== currentPassage.id) return [stroke]
-          return splitStrokeByPredicate(stroke, (pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY)
-        }),
-      )
-
-      const root = rootForPane(pane)
-      if (root) {
-        const selectionClientRect = {
-          left: containerRect.left + minX,
-          top: containerRect.top + minY,
-          right: containerRect.left + maxX,
-          bottom: containerRect.top + maxY,
-        }
-        const marks = root.querySelectorAll<HTMLElement>('[data-highlight-id]')
-        const idsToRemove = new Set<string>()
-        marks.forEach((mark) => {
-          const id = mark.dataset.highlightId
-          if (!id) return
-          const clientRects = mark.getClientRects()
-          for (let i = 0; i < clientRects.length; i++) {
-            const r = clientRects[i]
-            if (rectsOverlap(selectionClientRect, { left: r.left, top: r.top, right: r.right, bottom: r.bottom })) {
-              idsToRemove.add(id)
-              break
-            }
-          }
-        })
-        if (idsToRemove.size > 0) {
-          idsToRemove.forEach((id) => removeHighlight(root, id))
-          setAnnotations((prev) => prev.filter((a) => !idsToRemove.has(a.id)))
-          setNotes((prev) => prev.filter((n) => !idsToRemove.has(n.annotation_id ?? '')))
-        }
-      }
-
-      setCanvasTextNotes((prev) =>
-        prev.filter((box) => {
-          if (box.pane !== pane || box.passageId !== currentPassage.id) return true
-          return !rectsOverlap(
-            { left: minX, top: minY, right: maxX, bottom: maxY },
-            { left: box.x, top: box.y, right: box.x + box.width, bottom: box.y + box.height },
-          )
         }),
       )
     },
@@ -1036,74 +790,27 @@ export function ExamShell({
   const handleEraserPointerDown = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
     if (toolMode !== 'eraser') return
     e.currentTarget.setPointerCapture(e.pointerId)
-    const { x, y, rect } = getLocalPoint(e.currentTarget, e)
+    isErasingRef.current = true
     setEraserClientPos({ x: e.clientX, y: e.clientY })
-    eraserDragStartRef.current = { pane, x, y }
-    setEraserRect({ pane, x, y, width: 0, height: 0 })
+    const { rect } = getLocalPoint(e.currentTarget, e)
     eraseAtCircle(pane, e.clientX, e.clientY, rect)
   }
 
   const handleEraserPointerMove = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
     if (toolMode !== 'eraser') return
     setEraserClientPos({ x: e.clientX, y: e.clientY })
-    const start = eraserDragStartRef.current
-    if (!start || start.pane !== pane || e.buttons !== 1) return
-
-    const { x, y, rect } = getLocalPoint(e.currentTarget, e)
+    if (!isErasingRef.current && e.buttons !== 1) return
+    const { rect } = getLocalPoint(e.currentTarget, e)
     eraseAtCircle(pane, e.clientX, e.clientY, rect)
-
-    const nextRect: LocalRect = {
-      pane,
-      x: Math.min(start.x, x),
-      y: Math.min(start.y, y),
-      width: Math.abs(x - start.x),
-      height: Math.abs(y - start.y),
-    }
-    setEraserRect(nextRect)
-    if (nextRect.width >= 6 || nextRect.height >= 6) {
-      eraseInRect(pane, nextRect, rect)
-    }
   }
 
-  const handleEraserPointerUp = (pane: 'passage' | 'questions') => (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleEraserPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (toolMode !== 'eraser') return
-    const start = eraserDragStartRef.current
-    if (start && start.pane === pane) {
-      const { x, y, rect } = getLocalPoint(e.currentTarget, e)
-      const finalRect: LocalRect = {
-        pane,
-        x: Math.min(start.x, x),
-        y: Math.min(start.y, y),
-        width: Math.abs(x - start.x),
-        height: Math.abs(y - start.y),
-      }
-      if (finalRect.width >= 6 || finalRect.height >= 6) {
-        eraseInRect(pane, finalRect, rect)
-      }
-    }
-    eraserDragStartRef.current = null
-    setEraserRect(null)
+    isErasingRef.current = false
     try {
       e.currentTarget.releasePointerCapture(e.pointerId)
     } catch {
       // ignore
-    }
-  }
-
-  const handlePaneClick = (e: React.MouseEvent) => {
-    if (toolMode !== 'select') return
-    const target = e.target as HTMLElement
-    const mark = target.closest<HTMLElement>('[data-highlight-id]')
-    if (!mark) return
-    const highlightId = mark.dataset.highlightId
-    if (!highlightId) return
-
-    const linkedNote = notes.find((n) => n.annotation_id === highlightId)
-    if (linkedNote) {
-      const rect = mark.getBoundingClientRect()
-      setNoteAnchor({ top: rect.top, left: rect.left + rect.width / 2 })
-      editNote(linkedNote)
-      setNotesOpen(true)
     }
   }
 
@@ -1113,21 +820,19 @@ export function ExamShell({
     }
     setAnnotations([])
     setDrawStrokes([])
-    setNotes([])
-    setCanvasTextNotes([])
-    setNoteDraft('')
-    setQuoteDraft('')
-    setEditingNoteId(null)
-    setLinkedNoteContext(null)
-    setNotesOpen(false)
+    setEdgeTextBoxes([])
+    setSelectedTextBoxId(null)
     setSelection(null)
   }
 
   const hasAnyAnnotations =
-    annotations.length > 0 || drawStrokes.length > 0 || notes.length > 0 || canvasTextNotes.length > 0
+    annotations.length > 0 || drawStrokes.length > 0 || edgeTextBoxes.length > 0
 
   return (
-    <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
+    <div
+      onPointerDown={() => setSelectedTextBoxId(null)}
+      className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900"
+    >
       <AppHeader compact onHomeClick={onExit} />
       <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -1144,18 +849,18 @@ export function ExamShell({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {/* Compact Draw / Eraser / Transparent Textbox Note tools */}
+          {/* Edge-inspired tools: Draw (Pen), Add Text (T), Erase (Eraser 0.75cm radius) */}
           <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1">
             <button
               type="button"
               onClick={() => handleToolChange('draw')}
               aria-pressed={toolMode === 'draw'}
-              title="Vẽ tự do"
-              className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
-                toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+              title="Draw"
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
+                toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
               }`}
             >
-              <Pencil className="size-3.5" />
+              <Pen className="size-3.5" />
               <span className="hidden md:inline">Draw</span>
             </button>
 
@@ -1179,40 +884,40 @@ export function ExamShell({
 
             <button
               type="button"
+              onClick={() => handleToolChange('text')}
+              aria-pressed={toolMode === 'text'}
+              title="Add text"
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
+                toolMode === 'text' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
+              }`}
+            >
+              <Type className="size-3.5" />
+              <span className="hidden md:inline">Add Text</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => handleToolChange('eraser')}
               aria-pressed={toolMode === 'eraser'}
-              title="Cục tẩy tròn 1cm / Kéo hình chữ nhật để xóa"
-              className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
-                toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'
+              title="Erase (vòng tròn bán kính 0.75 cm)"
+              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
+                toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
               }`}
             >
               <Eraser className="size-3.5" />
-              <span className="hidden md:inline">Eraser</span>
+              <span className="hidden md:inline">Erase</span>
             </button>
 
             {toolMode === 'eraser' && hasAnyAnnotations && (
               <button
                 type="button"
                 onClick={handleEraseAll}
-                title="Xóa tất cả ghi chú và nét vẽ"
+                title="Xóa tất cả highlight, chữ viết và nét vẽ"
                 className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-100 px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-200"
               >
                 <Trash2 className="size-3" /> All
               </button>
             )}
-
-            <button
-              type="button"
-              onClick={() => handleToolChange('note')}
-              aria-pressed={toolMode === 'note'}
-              title="Vẽ khung Textbox Note trong suốt lên bài đọc/câu hỏi"
-              className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
-                toolMode === 'note' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'
-              }`}
-            >
-              <TextSelect className="size-3.5" />
-              <span className="hidden md:inline">Textbox</span>
-            </button>
           </div>
 
           <div
@@ -1228,12 +933,6 @@ export function ExamShell({
           >
             <Clock3 className="size-4" /> {exam.isTimed ? clock(secondsLeft) : clock(elapsed)}
           </div>
-
-          <Button variant="outline" size="sm" onClick={startNewNote} aria-label="Open study notes" className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3">
-            <StickyNote className="size-4 sm:mr-1.5" />
-            <span className="hidden sm:inline">Notes</span>
-            <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px]">{notes.length + canvasTextNotes.length}</span>
-          </Button>
 
           {isAdmin && (
             <Button
@@ -1284,7 +983,6 @@ export function ExamShell({
               className={`rich-content text-[15px] leading-[1.9] ${toolMode === 'select' ? 'selection:bg-yellow-200/80' : 'select-none'}`}
               onMouseUp={() => toolMode === 'select' && selectText('passage')}
               onKeyUp={() => toolMode === 'select' && selectText('passage')}
-              onClick={handlePaneClick}
               dangerouslySetInnerHTML={{ __html: currentPassageHtml }}
             />
             {!currentPassage.content && (
@@ -1317,63 +1015,38 @@ export function ExamShell({
               ))}
             </svg>
 
-            {/* Note Textbox Draw Overlay */}
-            {toolMode === 'note' && (
+            {/* Add Text Click Overlay */}
+            {toolMode === 'text' && (
               <div
-                className="pointer-events-auto absolute inset-0 z-20 cursor-crosshair touch-none"
-                onPointerDown={handleNoteBoxDrawStart('passage')}
-                onPointerMove={handleNoteBoxDrawMove('passage')}
-                onPointerUp={handleNoteBoxDrawEnd('passage')}
-                onPointerCancel={handleNoteBoxDrawEnd('passage')}
-              >
-                {drawingNoteRect?.pane === 'passage' && (
-                  <div
-                    style={{
-                      left: drawingNoteRect.x,
-                      top: drawingNoteRect.y,
-                      width: drawingNoteRect.width,
-                      height: drawingNoteRect.height,
-                    }}
-                    className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
-                  />
-                )}
-              </div>
+                className="pointer-events-auto absolute inset-0 z-20 cursor-text touch-none"
+                onPointerDown={handleAddTextClick('passage')}
+              />
             )}
 
-            {/* Eraser Overlay (1cm circle + drag rectangle) */}
+            {/* Eraser Overlay (0.75cm radius circle sweep) */}
             {toolMode === 'eraser' && (
               <div
                 className="pointer-events-auto absolute inset-0 z-20 cursor-none touch-none"
                 onPointerDown={handleEraserPointerDown('passage')}
                 onPointerMove={handleEraserPointerMove('passage')}
-                onPointerUp={handleEraserPointerUp('passage')}
-                onPointerCancel={handleEraserPointerUp('passage')}
+                onPointerUp={handleEraserPointerUp}
+                onPointerCancel={handleEraserPointerUp}
                 onPointerLeave={() => {
-                  if (!eraserDragStartRef.current) setEraserClientPos(null)
+                  isErasingRef.current = false
+                  setEraserClientPos(null)
                 }}
-              >
-                {eraserRect?.pane === 'passage' && (eraserRect.width >= 4 || eraserRect.height >= 4) && (
-                  <div
-                    style={{
-                      left: eraserRect.x,
-                      top: eraserRect.y,
-                      width: eraserRect.width,
-                      height: eraserRect.height,
-                    }}
-                    className="pointer-events-none absolute border-2 border-dashed border-rose-500 bg-rose-500/15"
-                  />
-                )}
-              </div>
+              />
             )}
 
-            {/* Drawn Transparent Textbox Notes on Passage */}
-            {passageTextNotes.map((box) => (
-              <TransparentNoteBox
+            {/* Edge-style Text Boxes on Passage */}
+            {passageTextBoxes.map((box) => (
+              <EdgeStyleTextBox
                 key={box.id}
                 box={box}
-                autoFocus={focusedNoteBoxId === box.id}
-                onChange={updateCanvasTextNote}
-                onDelete={deleteCanvasTextNote}
+                isSelected={selectedTextBoxId === box.id}
+                onSelect={setSelectedTextBoxId}
+                onChange={updateEdgeTextBox}
+                onDelete={deleteEdgeTextBox}
               />
             ))}
           </div>
@@ -1425,7 +1098,6 @@ export function ExamShell({
                 className={`w-full space-y-3 ${toolMode === 'select' ? '' : 'select-none'}`}
                 onMouseUp={() => toolMode === 'select' && selectText('questions')}
                 onKeyUp={() => toolMode === 'select' && selectText('questions')}
-                onClick={handlePaneClick}
               >
                 {currentGroups.length ? (
                   currentGroups.map((group) => <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />)
@@ -1460,63 +1132,38 @@ export function ExamShell({
                 ))}
               </svg>
 
-              {/* Note Textbox Draw Overlay */}
-              {toolMode === 'note' && (
+              {/* Add Text Click Overlay */}
+              {toolMode === 'text' && (
                 <div
-                  className="pointer-events-auto absolute inset-0 z-20 cursor-crosshair touch-none"
-                  onPointerDown={handleNoteBoxDrawStart('questions')}
-                  onPointerMove={handleNoteBoxDrawMove('questions')}
-                  onPointerUp={handleNoteBoxDrawEnd('questions')}
-                  onPointerCancel={handleNoteBoxDrawEnd('questions')}
-                >
-                  {drawingNoteRect?.pane === 'questions' && (
-                    <div
-                      style={{
-                        left: drawingNoteRect.x,
-                        top: drawingNoteRect.y,
-                        width: drawingNoteRect.width,
-                        height: drawingNoteRect.height,
-                      }}
-                      className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
-                    />
-                  )}
-                </div>
+                  className="pointer-events-auto absolute inset-0 z-20 cursor-text touch-none"
+                  onPointerDown={handleAddTextClick('questions')}
+                />
               )}
 
-              {/* Eraser Overlay (1cm circle + drag rectangle) */}
+              {/* Eraser Overlay (0.75cm radius circle sweep) */}
               {toolMode === 'eraser' && (
                 <div
                   className="pointer-events-auto absolute inset-0 z-20 cursor-none touch-none"
                   onPointerDown={handleEraserPointerDown('questions')}
                   onPointerMove={handleEraserPointerMove('questions')}
-                  onPointerUp={handleEraserPointerUp('questions')}
-                  onPointerCancel={handleEraserPointerUp('questions')}
+                  onPointerUp={handleEraserPointerUp}
+                  onPointerCancel={handleEraserPointerUp}
                   onPointerLeave={() => {
-                    if (!eraserDragStartRef.current) setEraserClientPos(null)
+                    isErasingRef.current = false
+                    setEraserClientPos(null)
                   }}
-                >
-                  {eraserRect?.pane === 'questions' && (eraserRect.width >= 4 || eraserRect.height >= 4) && (
-                    <div
-                      style={{
-                        left: eraserRect.x,
-                        top: eraserRect.y,
-                        width: eraserRect.width,
-                        height: eraserRect.height,
-                      }}
-                      className="pointer-events-none absolute border-2 border-dashed border-rose-500 bg-rose-500/15"
-                    />
-                  )}
-                </div>
+                />
               )}
 
-              {/* Drawn Transparent Textbox Notes on Questions */}
-              {questionTextNotes.map((box) => (
-                <TransparentNoteBox
+              {/* Edge-style Text Boxes on Questions */}
+              {questionTextBoxes.map((box) => (
+                <EdgeStyleTextBox
                   key={box.id}
                   box={box}
-                  autoFocus={focusedNoteBoxId === box.id}
-                  onChange={updateCanvasTextNote}
-                  onDelete={deleteCanvasTextNote}
+                  isSelected={selectedTextBoxId === box.id}
+                  onSelect={setSelectedTextBoxId}
+                  onChange={updateEdgeTextBox}
+                  onDelete={deleteEdgeTextBox}
                 />
               ))}
             </div>
@@ -1524,14 +1171,14 @@ export function ExamShell({
         </section>
       </div>
 
-      {/* Visible 1cm diameter circular eraser indicator */}
+      {/* Circular eraser indicator: radius = 0.75 cm (diameter = 1.5 cm) */}
       {toolMode === 'eraser' && eraserClientPos && (
         <div
           aria-hidden="true"
           className="pointer-events-none fixed z-50 rounded-full border-2 border-rose-500 bg-rose-500/15 shadow-xs"
           style={{
-            width: '1cm',
-            height: '1cm',
+            width: '1.5cm',
+            height: '1.5cm',
             left: eraserClientPos.x,
             top: eraserClientPos.y,
             transform: 'translate(-50%, -50%)',
@@ -1592,7 +1239,7 @@ export function ExamShell({
         </div>
       </footer>
 
-      {/* Highlight bar: hidden until user selects text, then appears compactly above selection */}
+      {/* Highlight bar: hidden until user selects text */}
       {selection && (
         <AnnotationToolbar
           position={{ top: selection.top, left: selection.left }}
@@ -1600,7 +1247,6 @@ export function ExamShell({
           hasHighlight={selection.highlightIds.length > 0}
           onHighlight={applySelectedHighlight}
           onClear={clearSelectedHighlights}
-          onNote={beginLinkedNote}
         />
       )}
 
@@ -1620,22 +1266,6 @@ export function ExamShell({
           </div>
         </div>
       )}
-
-      <StudyNotesDrawer
-        open={notesOpen}
-        anchorPosition={noteAnchor}
-        notes={notes}
-        quoteDraft={quoteDraft}
-        noteDraft={noteDraft}
-        editingNoteId={editingNoteId}
-        onClose={() => setNotesOpen(false)}
-        onQuoteChange={setQuoteDraft}
-        onTextChange={setNoteDraft}
-        onSave={saveNote}
-        onCreate={startNewNote}
-        onEdit={editNote}
-        onDelete={deleteNote}
-      />
     </div>
   )
 }
