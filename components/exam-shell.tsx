@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowLeft, Clock3, Pause, Play, Send, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
-import { AnnotationToolbar, HIGHLIGHT_COLORS } from '@/components/exam/annotation-toolbar'
+import { AnnotationToolbar, DRAW_COLORS, HIGHLIGHT_COLORS, type ToolMode } from '@/components/exam/annotation-toolbar'
 import { QuestionGroupCard } from '@/components/exam/question-group'
 import { StudyNotesDrawer } from '@/components/exam/study-notes-drawer'
 import { useAuth } from '@/components/auth-provider'
@@ -26,6 +26,23 @@ type TextSelection = {
   highlightIds: string[]
 }
 type NoteContext = { annotationId: string | null; passagePart: 1 | 2 | 3; pane: 'passage' | 'questions'; color: string }
+
+type DrawStroke = {
+  id: string
+  color: string
+  pane: 'passage' | 'questions'
+  passageId: string
+  points: { x: number; y: number }[]
+}
+
+function pointsToPath(points: { x: number; y: number }[]) {
+  if (!points.length) return ''
+  if (points.length === 1) {
+    const p = points[0]
+    return `M ${p.x} ${p.y} L ${p.x} ${p.y}`
+  }
+  return `M ${points[0].x} ${points[0].y} ${points.slice(1).map((p) => `L ${p.x} ${p.y}`).join(' ')}`
+}
 
 function clock(seconds: number) {
   const hours = Math.floor(seconds / 3600)
@@ -83,11 +100,17 @@ export function ExamShell({
   const [linkedNoteContext, setLinkedNoteContext] = useState<NoteContext | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<TextSelection | null>(null)
+  const [toolMode, setToolMode] = useState<ToolMode>('select')
+  const [drawColor, setDrawColor] = useState<string>(DRAW_COLORS[0].value)
+  const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([])
   const passageRef = useRef<HTMLDivElement>(null)
   const questionRef = useRef<HTMLDivElement>(null)
   const splitterRef = useRef<HTMLDivElement>(null)
   const pauseRef = useRef<PauseReason>(null)
   const submittedRef = useRef(false)
+  const passageSvgRef = useRef<SVGSVGElement>(null)
+  const questionSvgRef = useRef<SVGSVGElement>(null)
+  const drawingStrokeRef = useRef<DrawStroke | null>(null)
 
   const currentPassage = exam.passages[passageIndex]
   const isPaused = pauseReason !== null
@@ -351,6 +374,60 @@ export function ExamShell({
     void submit()
   }
 
+  const passageStrokes = drawStrokes.filter((s) => s.pane === 'passage' && s.passageId === currentPassage.id)
+  const questionStrokes = drawStrokes.filter((s) => s.pane === 'questions' && s.passageId === currentPassage.id)
+
+  const handleToolChange = useCallback((mode: ToolMode) => {
+    setToolMode(mode)
+    if (mode !== 'select') {
+      setSelection(null)
+      window.getSelection()?.removeAllRanges()
+    }
+  }, [])
+
+  const getSvgPoint = (svg: SVGSVGElement, e: React.PointerEvent<SVGSVGElement>) => {
+    const rect = svg.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  const handleDrawStart = (pane: 'passage' | 'questions') => (e: React.PointerEvent<SVGSVGElement>) => {
+    if (toolMode !== 'draw') return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const point = getSvgPoint(e.currentTarget, e)
+    const stroke: DrawStroke = { id: crypto.randomUUID(), color: drawColor, pane, passageId: currentPassage.id, points: [point] }
+    drawingStrokeRef.current = stroke
+    setDrawStrokes((prev) => [...prev, stroke])
+  }
+
+  const handleDrawMove = (pane: 'passage' | 'questions') => (e: React.PointerEvent<SVGSVGElement>) => {
+    if (toolMode !== 'draw' || !drawingStrokeRef.current) return
+    const point = getSvgPoint(e.currentTarget, e)
+    const strokeId = drawingStrokeRef.current.id
+    setDrawStrokes((prev) => prev.map((s) => (s.id === strokeId ? { ...s, points: [...s.points, point] } : s)))
+  }
+
+  const handleDrawEnd = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (drawingStrokeRef.current) drawingStrokeRef.current = null
+    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+  }
+
+  const handleEraseStroke = (strokeId: string) => {
+    setDrawStrokes((prev) => prev.filter((s) => s.id !== strokeId))
+  }
+
+  const handleEraseClick = (pane: 'passage' | 'questions') => (e: React.MouseEvent) => {
+    if (toolMode !== 'eraser') return
+    const target = e.target as HTMLElement
+    const mark = target.closest<HTMLElement>('[data-highlight-id]')
+    if (!mark) return
+    const highlightId = mark.dataset.highlightId
+    if (!highlightId) return
+    const root = rootForPane(pane)
+    removeHighlight(root, highlightId)
+    setAnnotations((prev) => prev.filter((a) => a.id !== highlightId))
+    setNotes((prev) => prev.filter((n) => n.annotation_id !== highlightId))
+  }
+
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
       <AppHeader compact onHomeClick={onExit} />
@@ -411,15 +488,38 @@ export function ExamShell({
               </span>
             </div>
           </div>
-          <div className="w-full px-8 py-6">
+          <div className="relative w-full px-8 py-6">
             <div
               ref={passageRef}
-              className="rich-content text-[15px] leading-[1.9] selection:bg-yellow-200/80"
-              onMouseUp={() => selectText('passage')}
-              onKeyUp={() => selectText('passage')}
+              className={`rich-content text-[15px] leading-[1.9] ${toolMode === 'select' ? 'selection:bg-yellow-200/80' : 'select-none'}`}
+              onMouseUp={() => toolMode === 'select' && selectText('passage')}
+              onKeyUp={() => toolMode === 'select' && selectText('passage')}
+              onClick={handleEraseClick('passage')}
               dangerouslySetInnerHTML={{ __html: currentPassageHtml }}
             />
             {!currentPassage.content && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Reading passage content is being updated.</p>}
+            <svg
+              ref={passageSvgRef}
+              className={`absolute inset-0 h-full w-full ${toolMode === 'draw' ? 'pointer-events-auto cursor-crosshair touch-none' : 'pointer-events-none'}`}
+              onPointerDown={handleDrawStart('passage')}
+              onPointerMove={handleDrawMove('passage')}
+              onPointerUp={handleDrawEnd}
+              onPointerCancel={handleDrawEnd}
+            >
+              {passageStrokes.map((stroke) => (
+                <path
+                  key={stroke.id}
+                  d={pointsToPath(stroke.points)}
+                  stroke={stroke.color}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                  className={toolMode === 'eraser' ? 'pointer-events-stroke cursor-pointer' : 'pointer-events-none'}
+                  onClick={() => handleEraseStroke(stroke.id)}
+                />
+              ))}
+            </svg>
           </div>
         </section>
 
@@ -450,10 +550,34 @@ export function ExamShell({
               <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Questions</p><p className="mt-0.5 text-sm font-semibold text-slate-800">Passage {currentPassage.passage_part}</p></div>
               <span className="text-xs text-slate-500">{currentQuestions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length}/{currentQuestions.length} answered</span>
             </div>
-            <div ref={questionRef} className="w-full space-y-3" onMouseUp={() => selectText('questions')} onKeyUp={() => selectText('questions')}>
-              {currentGroups.length ? currentGroups.map((group) => (
-                <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />
-              )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No questions available for this passage yet.</div>}
+            <div className="relative w-full">
+              <div ref={questionRef} className={`w-full space-y-3 ${toolMode === 'select' ? '' : 'select-none'}`} onMouseUp={() => toolMode === 'select' && selectText('questions')} onKeyUp={() => toolMode === 'select' && selectText('questions')} onClick={handleEraseClick('questions')}>
+                {currentGroups.length ? currentGroups.map((group) => (
+                  <QuestionGroupCard key={group.id} group={group} answers={answers} onAnswer={updateAnswer} />
+                )) : <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No questions available for this passage yet.</div>}
+              </div>
+              <svg
+                ref={questionSvgRef}
+                className={`absolute inset-0 h-full w-full ${toolMode === 'draw' ? 'pointer-events-auto cursor-crosshair touch-none' : 'pointer-events-none'}`}
+                onPointerDown={handleDrawStart('questions')}
+                onPointerMove={handleDrawMove('questions')}
+                onPointerUp={handleDrawEnd}
+                onPointerCancel={handleDrawEnd}
+              >
+                {questionStrokes.map((stroke) => (
+                  <path
+                    key={stroke.id}
+                    d={pointsToPath(stroke.points)}
+                    stroke={stroke.color}
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                    className={toolMode === 'eraser' ? 'pointer-events-stroke cursor-pointer' : 'pointer-events-none'}
+                    onClick={() => handleEraseStroke(stroke.id)}
+                  />
+                ))}
+              </svg>
             </div>
           </div>
         </section>
@@ -488,14 +612,18 @@ export function ExamShell({
         </div>
       </footer>
 
-      {selection && <AnnotationToolbar
-        position={selection}
+      <AnnotationToolbar
+        position={selection ?? { top: 80, left: 320 }}
         selectedColor={selectedColor}
-        hasHighlight={selection.highlightIds.length > 0}
+        hasHighlight={!!selection?.highlightIds?.length}
+        toolMode={toolMode}
+        drawColor={drawColor}
         onHighlight={applySelectedHighlight}
         onClear={clearSelectedHighlights}
         onNote={beginNote}
-      />}
+        onToolChange={handleToolChange}
+        onDrawColorChange={setDrawColor}
+      />
 
       {pauseReason === 'auto' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
         <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-md rounded-2xl border border-white/70 bg-white/95 p-7 text-center shadow-2xl">
