@@ -163,7 +163,7 @@ button, input, select, textarea { font: inherit; }
   opacity: 1;
 }
 .exam-input:placeholder-shown {
-  text-align: center;
+  text-align: left;
 }
 .exam-input:focus {
   border-color: #0284c7;
