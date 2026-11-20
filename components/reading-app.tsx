@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpenCheck, Check, Clock3, FileText, Layers, LoaderCircle, LockKeyhole, RotateCw, Search, Shuffle, Sparkles, Tag, Timer, TriangleAlert } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, Check, Clock3, FileText, Layers, LoaderCircle, LockKeyhole, RotateCw, Shuffle, Sparkles, Tag, Timer, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
 import { ExamShell } from '@/components/exam-shell'
@@ -11,8 +11,8 @@ import { createClient } from '@/lib/supabase/client'
 import { loadExamDefinition } from '@/lib/exam-data'
 import { gradeExam } from '@/lib/grading'
 import { buildDemoExamDefinition, DEMO_TEST_CARD, DEMO_TEST_TITLE } from '@/lib/demo-test'
-import { PASSAGE_TOPICS, parsePassageTopics } from '@/lib/types'
-import type { ExamDefinition, GradingSummary, Passage, PassageTopic, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
+import { parsePassageTopics } from '@/lib/types'
+import type { ExamDefinition, GradingSummary, Passage, SavedTestResult, StudyNote, UserAnswer } from '@/lib/types'
 
 const supabase = createClient()
 
@@ -49,8 +49,6 @@ export function ReadingApp() {
   const [practiceType, setPracticeType] = useState<'single' | 'full3'>('single')
   const [singlePracticeTimed, setSinglePracticeTimed] = useState(true)
   const [fullPracticeTimed, setFullPracticeTimed] = useState(true)
-  const [practiceTopicFilter, setPracticeTopicFilter] = useState<string>('all')
-  const [practiceSearch, setPracticeSearch] = useState('')
   const [selectedPart1Id, setSelectedPart1Id] = useState('')
   const [selectedPart2Id, setSelectedPart2Id] = useState('')
   const [selectedPart3Id, setSelectedPart3Id] = useState('')
@@ -110,18 +108,9 @@ export function ReadingApp() {
   )
   const testOnlyCount = testOnlyPassages.length
 
-  const filteredPracticePassages = useMemo(() => {
-    const q = practiceSearch.trim().toLowerCase()
-    return practicePassages.filter((p) => {
-      if (practiceTopicFilter !== 'all' && !parsePassageTopics(p.topic).includes(practiceTopicFilter as PassageTopic)) return false
-      if (q && !p.title.toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [practicePassages, practiceTopicFilter, practiceSearch])
-
   const singlePartPool = useMemo(() => {
-    return filteredPracticePassages.filter((p) => p.passage_part === singlePart && p.actualCount > 0)
-  }, [filteredPracticePassages, singlePart])
+    return practicePassages.filter((p) => p.passage_part === singlePart && p.actualCount > 0)
+  }, [practicePassages, singlePart])
 
   const shuffleSinglePool = useCallback(() => {
     const pool = [...singlePartPool]
@@ -135,7 +124,7 @@ export function ReadingApp() {
 
   useEffect(() => {
     shuffleSinglePool()
-  }, [singlePart, practiceTopicFilter, practiceSearch, shuffleSinglePool])
+  }, [singlePart, shuffleSinglePool])
 
   const singleSelectedPassage = useMemo(
     () => singlePartPool.find((p) => p.id === singleSelectedId) ?? singlePartPool[0] ?? null,
@@ -143,22 +132,19 @@ export function ReadingApp() {
   )
 
   const part1Options = useMemo(() => {
-    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
-    const list = source.filter((p) => p.passage_part === 1 && p.actualCount > 0)
-    return list.length ? list : source.filter((p) => p.actualCount > 0)
-  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
+    const list = practicePassages.filter((p) => p.passage_part === 1 && p.actualCount > 0)
+    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
+  }, [practicePassages])
 
   const part2Options = useMemo(() => {
-    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
-    const list = source.filter((p) => p.passage_part === 2 && p.actualCount > 0)
-    return list.length ? list : source.filter((p) => p.actualCount > 0)
-  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
+    const list = practicePassages.filter((p) => p.passage_part === 2 && p.actualCount > 0)
+    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
+  }, [practicePassages])
 
   const part3Options = useMemo(() => {
-    const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
-    const list = source.filter((p) => p.passage_part === 3 && p.actualCount > 0)
-    return list.length ? list : source.filter((p) => p.actualCount > 0)
-  }, [practicePassages, filteredPracticePassages, practiceTopicFilter])
+    const list = practicePassages.filter((p) => p.passage_part === 3 && p.actualCount > 0)
+    return list.length ? list : practicePassages.filter((p) => p.actualCount > 0)
+  }, [practicePassages])
 
   useEffect(() => {
     if (!part1Options.some((p) => p.id === selectedPart1Id)) {
@@ -306,8 +292,7 @@ export function ReadingApp() {
   }
 
   const startRandomFull3Practice = async () => {
-    const sourcePool = (practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages).filter((p) => p.actualCount > 0)
-    const pool = sourcePool.length >= 3 ? sourcePool : practicePassages.filter((p) => p.actualCount > 0)
+    const pool = practicePassages.filter((p) => p.actualCount > 0)
     if (pool.length < 3) {
       setNotice('At least 3 practice passages with questions are required for Full 3 Passage practice.')
       return
@@ -458,7 +443,7 @@ export function ReadingApp() {
               <div className="space-y-4 p-5">
                 <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
                   <div className="flex items-center justify-between text-sm"><span className="font-medium text-slate-700">Available tests</span><span className="font-semibold text-sky-700">{availableTests.length} {availableTests.length === 1 ? 'test' : 'tests'}</span></div>
-                  <p className="mt-2 text-xs text-slate-500">Choose a full test or start Single Passage / Full 3 Passage practice by topic.</p>
+                  <p className="mt-2 text-xs text-slate-500">Choose a full test or start Single Passage / Full 3 Passage practice.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-slate-100 p-4"><span className="text-2xl font-bold tracking-tight text-slate-900">{practicePassages.length}</span><p className="mt-1 text-xs text-slate-500">Practice passages</p></div>
@@ -543,7 +528,7 @@ export function ReadingApp() {
               </div>
             </article>
 
-            {/* Cột 2: Practice (Chỉ dùng các bài phân loại Practice + Lọc theo 15 Chủ đề) */}
+            {/* Cột 2: Practice */}
             <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex size-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
@@ -607,34 +592,6 @@ export function ReadingApp() {
                   <Layers className="size-4" />
                   <span>Full 3 Passage</span>
                 </button>
-              </div>
-
-              {/* Bộ lọc Chủ đề (15 Topics) & Tìm kiếm bài đọc Practice */}
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="search"
-                    value={practiceSearch}
-                    onChange={(e) => setPracticeSearch(e.target.value)}
-                    placeholder="Search practice passage..."
-                    aria-label="Search practice passage"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-sky-400"
-                  />
-                </div>
-                <select
-                  value={practiceTopicFilter}
-                  onChange={(e) => setPracticeTopicFilter(e.target.value)}
-                  aria-label="Filter practice passages by topic"
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 outline-none focus:border-sky-400"
-                >
-                  <option value="all">Topic: All Topics</option>
-                  {PASSAGE_TOPICS.map((topicItem) => (
-                    <option key={topicItem} value={topicItem}>
-                      Topic: {topicItem}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               {practiceType === 'single' ? (
@@ -724,7 +681,7 @@ export function ReadingApp() {
                     <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
                       <BookOpenCheck className="mx-auto size-6 text-slate-400" />
                       <p className="mt-3 text-sm font-semibold text-slate-700">No matching passages for Passage {singlePart}</p>
-                      <p className="mt-1 text-xs text-slate-500">Try another topic, search term, or passage part.</p>
+                      <p className="mt-1 text-xs text-slate-500">Try another passage part.</p>
                     </div>
                   )}
                 </div>
