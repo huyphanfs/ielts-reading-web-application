@@ -396,12 +396,12 @@ export function ReadingApp() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <AppHeader />
       <section className="relative isolate overflow-hidden border-b border-slate-200/70 bg-white">
         <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_82%_20%,rgba(2,132,199,0.13),transparent_38%),radial-gradient(ellipse_at_18%_80%,rgba(14,165,233,0.06),transparent_36%)]" />
         <div className="mx-auto grid max-w-[1240px] gap-10 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:py-[76px]">
-          <div className="max-w-[660px]">
+          <div className="min-w-0 max-w-[660px]">
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50/80 px-3 py-1.5 text-xs font-semibold tracking-wide text-sky-700">
               <Sparkles className="size-3.5" /> IELTS ACADEMIC · READING
             </div>
@@ -478,9 +478,9 @@ export function ReadingApp() {
         ) : (
           <div className="grid gap-5 lg:grid-cols-2">
             {/* Cột 1: Full Test · 40 Questions (Chỉ dùng các bài phân loại Test) */}
-            <article className="group relative overflow-hidden rounded-2xl border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
+            <article className="group relative min-w-0 overflow-hidden rounded-2xl border border-sky-100 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-sky-50 blur-2xl transition group-hover:bg-sky-100" />
-              <div className="relative">
+              <div className="relative min-w-0">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex size-12 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-200"><FileText className="size-5" /></div>
                   <div role="radiogroup" aria-label="Full test timer mode" className="flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/80 p-1">
@@ -516,7 +516,7 @@ export function ReadingApp() {
             </article>
 
             {/* Cột 2: Practice (Chỉ dùng các bài phân loại Practice + Lọc theo 15 Chủ đề) */}
-            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
+            <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-lg hover:shadow-sky-950/5 sm:p-7">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex size-12 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
                   {practiceType === 'single' ? <BookOpenCheck className="size-5" /> : <Layers className="size-5" />}
@@ -535,8 +535,8 @@ export function ReadingApp() {
                 )}
               </div>
 
-              <div className="mt-5 flex flex-wrap items-end justify-between gap-3">
-                <div>
+              <div className="mt-5 flex min-w-0 flex-wrap items-end justify-between gap-3">
+                <div className="min-w-0">
                   <h3 className="text-xl font-bold text-slate-950">Practice</h3>
                   <p className="mt-1.5 text-sm leading-6 text-slate-600">
                     {practiceType === 'single'

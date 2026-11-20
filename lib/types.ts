@@ -10,15 +10,20 @@ export const PASSAGE_TOPICS = [
   'Society',
   'History',
   'Geography',
-  'Economy',
+  'Economics',
   'Travel',
   'Literature',
-  'Fine arts',
+  'Art',
 ] as const
 
 export type PassageTopic = typeof PASSAGE_TOPICS[number]
 
 export const MAX_PASSAGE_TOPICS = 2
+
+const LEGACY_TOPIC_MAP: Record<string, PassageTopic> = {
+  Economy: 'Economics',
+  'Fine arts': 'Art',
+}
 
 export function parsePassageTopics(rawTopic?: string | null): PassageTopic[] {
   if (!rawTopic) return []
@@ -26,8 +31,9 @@ export function parsePassageTopics(rawTopic?: string | null): PassageTopic[] {
   const result: PassageTopic[] = []
   for (const item of rawTopic.split(',')) {
     const trimmed = item.trim()
-    if (validSet.has(trimmed) && !result.includes(trimmed as PassageTopic)) {
-      result.push(trimmed as PassageTopic)
+    const mapped = LEGACY_TOPIC_MAP[trimmed] ?? trimmed
+    if (validSet.has(mapped) && !result.includes(mapped as PassageTopic)) {
+      result.push(mapped as PassageTopic)
       if (result.length >= MAX_PASSAGE_TOPICS) break
     }
   }

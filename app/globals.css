@@ -82,8 +82,8 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { @apply bg-background text-foreground; }
+html { scroll-behavior: smooth; overflow-x: hidden; }
+body { @apply bg-background text-foreground; overflow-x: hidden; }
 button, input, select, textarea { font: inherit; }
 ::selection { background: #bae6fd; color: #0c4a6e; }
 

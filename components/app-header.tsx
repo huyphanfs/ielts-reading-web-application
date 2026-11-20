@@ -25,19 +25,19 @@ export function AppHeader({ compact = false, onHomeClick }: { compact?: boolean;
               router.push('/')
             }
           }}
-          className="group flex items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          className="group flex min-w-0 items-center gap-3 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
           aria-label="IELTS Reading — Home"
         >
           <span className="flex size-10 items-center justify-center rounded-xl bg-sky-600 text-white shadow-md shadow-sky-200 transition-transform group-hover:-rotate-3">
             <BookOpen className="size-5" aria-hidden="true" />
           </span>
-          <span className="leading-tight">
-            <span className="block text-[15px] font-bold tracking-tight text-slate-900">IELTS Reading</span>
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-[15px] font-bold tracking-tight text-slate-900">IELTS Reading</span>
             <span className="hidden text-[11px] font-medium tracking-[0.14em] text-slate-500 sm:block">COMPUTER-DELIVERED</span>
           </span>
         </Link>
 
-        <nav aria-label="Account navigation" className="flex items-center gap-2">
+        <nav aria-label="Account navigation" className="flex shrink-0 items-center gap-2">
           {!loading && user && profile?.role === 'admin' && (
             <Link href="/admin" className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:px-2.5"><ShieldCheck className="size-4 sm:mr-1.5" /><span className="hidden sm:inline">Admin</span></Link>
           )}
