@@ -55,6 +55,11 @@ export function ReadingApp() {
   const [selectedPart2Id, setSelectedPart2Id] = useState('')
   const [selectedPart3Id, setSelectedPart3Id] = useState('')
 
+  // Single Passage practice: passage part selector + shuffled 5-passage pool
+  const [singlePart, setSinglePart] = useState<1 | 2 | 3>(1)
+  const [singleShufflePool, setSingleShufflePool] = useState<Passage[]>([])
+  const [singleSelectedId, setSingleSelectedId] = useState('')
+
   const [starting, setStarting] = useState(false)
   const [authPrompt, setAuthPrompt] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -113,6 +118,29 @@ export function ReadingApp() {
       return true
     })
   }, [practicePassages, practiceTopicFilter, practiceSearch])
+
+  const singlePartPool = useMemo(() => {
+    return filteredPracticePassages.filter((p) => p.passage_part === singlePart && p.actualCount > 0)
+  }, [filteredPracticePassages, singlePart])
+
+  const shuffleSinglePool = useCallback(() => {
+    const pool = [...singlePartPool]
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    }
+    setSingleShufflePool(pool.slice(0, 5))
+    setSingleSelectedId(pool[0]?.id ?? '')
+  }, [singlePartPool])
+
+  useEffect(() => {
+    shuffleSinglePool()
+  }, [singlePart, practiceTopicFilter, practiceSearch, shuffleSinglePool])
+
+  const singleSelectedPassage = useMemo(
+    () => singlePartPool.find((p) => p.id === singleSelectedId) ?? singlePartPool[0] ?? null,
+    [singlePartPool, singleSelectedId],
+  )
 
   const part1Options = useMemo(() => {
     const source = practiceTopicFilter === 'all' ? practicePassages : filteredPracticePassages
@@ -610,51 +638,95 @@ export function ReadingApp() {
               </div>
 
               {practiceType === 'single' ? (
-                <div className="mt-4 space-y-2">
-                  <div className="mb-2 flex items-center justify-between">
+                <div className="mt-4 space-y-3">
+                  <div className="mb-1 flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Select 1 Passage</span>
                     <span className="text-xs text-slate-400">
-                      {filteredPracticePassages.length} {filteredPracticePassages.length === 1 ? 'passage' : 'passages'}
+                      {singlePartPool.length} {singlePartPool.length === 1 ? 'match' : 'matches'}
                     </span>
                   </div>
-                  <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                    {filteredPracticePassages.length ? filteredPracticePassages.map((passage) => {
-                      const count = counts[passage.id] ?? 0
-                      return (
-                        <button
-                          key={passage.id}
-                          type="button"
-                          disabled={starting || count === 0}
-                          onClick={() => void startSinglePractice(passage)}
-                          className="flex w-full items-center justify-between rounded-xl border border-slate-100 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50/40 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <span className="min-w-0">
-                            <span className="flex flex-wrap items-center gap-1.5">
-                              <span className="truncate text-sm font-semibold text-slate-800">{passage.title}</span>
-                              {parsePassageTopics(passage.topic).map((topicItem) => (
-                                <span
-                                  key={topicItem}
-                                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
-                                >
-                                  <Tag className="size-2.5" /> {topicItem}
-                                </span>
-                              ))}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-slate-500">
-                              Passage {passage.passage_part} · {count} {count === 1 ? 'question' : 'questions'} · {singlePracticeTimed ? '20 min' : 'Untimed'}
-                            </span>
-                          </span>
-                          <ArrowRight className="ml-3 size-4 shrink-0 text-slate-400" />
-                        </button>
-                      )
-                    }) : (
-                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
-                        <BookOpenCheck className="mx-auto size-6 text-slate-400" />
-                        <p className="mt-3 text-sm font-semibold text-slate-700">No matching practice passages</p>
-                        <p className="mt-1 text-xs text-slate-500">Try selecting another topic or clearing your search filter.</p>
-                      </div>
-                    )}
+
+                  <div role="tablist" aria-label="Select passage part" className="grid grid-cols-3 gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    {([1, 2, 3] as const).map((part) => (
+                      <button
+                        key={part}
+                        type="button"
+                        role="tab"
+                        aria-selected={singlePart === part}
+                        onClick={() => setSinglePart(part)}
+                        className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition ${
+                          singlePart === part
+                            ? 'bg-white text-sky-700 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Passage {part}
+                      </button>
+                    ))}
                   </div>
+
+                  {singleShufflePool.length > 0 ? (
+                    <div className="space-y-2.5">
+                      <select
+                        value={singleSelectedId}
+                        onChange={(e) => setSingleSelectedId(e.target.value)}
+                        aria-label="Select a practice passage"
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-sky-400"
+                      >
+                        {singleShufflePool.map((p) => {
+                          const count = counts[p.id] ?? 0
+                          return (
+                            <option key={p.id} value={p.id}>
+                              {p.title}{p.topic ? ` [${p.topic}]` : ''} ({count} questions)
+                            </option>
+                          )
+                        })}
+                      </select>
+
+                      {singleSelectedPassage && (
+                        <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-2">
+                          {parsePassageTopics(singleSelectedPassage.topic).map((topicItem) => (
+                            <span
+                              key={topicItem}
+                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-sky-200/80 bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700"
+                            >
+                              <Tag className="size-2.5" /> {topicItem}
+                            </span>
+                          ))}
+                          <span className="text-xs text-slate-500">
+                            Passage {singleSelectedPassage.passage_part} · {counts[singleSelectedPassage.id] ?? 0} questions · {singlePracticeTimed ? '20 min' : 'Untimed'}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          type="button"
+                          disabled={starting || !singleSelectedPassage}
+                          onClick={() => singleSelectedPassage && void startSinglePractice(singleSelectedPassage)}
+                          className="h-9 flex-1 rounded-lg bg-sky-600 px-3 text-xs font-semibold text-white hover:bg-sky-700 sm:text-sm"
+                        >
+                          {starting ? <LoaderCircle className="mr-1.5 size-4 animate-spin" /> : <ArrowRight className="mr-1.5 size-4" />}
+                          Start Practice
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={starting || singlePartPool.length < 2}
+                          onClick={shuffleSinglePool}
+                          className="h-9 rounded-lg border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Shuffle className="mr-1.5 size-3.5" /> Shuffle 5
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                      <BookOpenCheck className="mx-auto size-6 text-slate-400" />
+                      <p className="mt-3 text-sm font-semibold text-slate-700">No matching passages for Passage {singlePart}</p>
+                      <p className="mt-1 text-xs text-slate-500">Try another topic, search term, or passage part.</p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">

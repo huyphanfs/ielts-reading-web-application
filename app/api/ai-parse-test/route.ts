@@ -42,8 +42,12 @@ Critical rules:
 - Preserve any <img ...> tags that belong to a group's instruction, shared_content (such as diagrams/flow-charts/maps), or an individual question_text.
 - Support en-dash (–) and hyphen (-) in question ranges: "Questions 1–6", "Questions 1-6".
 - For "Choose TWO letters" covering e.g. Questions 11–12, create ONE question with question_number: 11 and input_type: "check_box".
-- For Summary/Note/Table/Diagram Completion, use shared_content with [number] placeholders and input_type "text_box".
+- For Summary/Note/Table/Diagram Completion, use shared_content with [number] placeholders and input_type "text_box". Wrap each [number] placeholder in <strong> tags, e.g. <strong>[23]</strong>.
 - For Matching Headings/Features/Information, use input_type "combo_box" with shared_options listing all options.
+- For Matching Information to a Paragraph, set shared_options to null — the paragraph letters (A-F) are already stated in the instruction text.
+- For Matching Headings, keep the list of headings in shared_options ONLY. Do NOT duplicate the heading list in the instruction field. Normalize Roman numerals so each always ends with a period (e.g. "i.", "ii.", "iii.", "iv.", "v.").
+- For Matching Features, normalize each shared_options item so the leading letter always ends with a period (e.g. "A.", "B.", "C.", "D.").
+- For Multiple Choice (single or Choose TWO/THREE), normalize each option so the leading letter always ends with a period (e.g. "A.", "B.", "C.").
 - For True/False/Not Given and Yes/No/Not Given, use input_type "combo_box" with shared_options null.
 - Output ONLY valid JSON, no markdown.`
 
