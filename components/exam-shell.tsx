@@ -5,14 +5,12 @@ import {
   ArrowLeft,
   ChevronDown,
   Clock3,
-  Eraser,
   GripVertical,
   Pause,
   Pen,
   Play,
   Send,
   Trash2,
-  Type,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppHeader } from '@/components/app-header'
@@ -209,7 +207,6 @@ function EdgeStyleTextBox({
       onKeyUp={(e) => e.stopPropagation()}
       className="pointer-events-auto absolute z-30 select-none"
     >
-      {/* Edge-style dashed blue container when active; transparent borderless text when inactive */}
       <div
         className={`relative flex items-stretch transition-colors ${
           isSelected
@@ -217,7 +214,6 @@ function EdgeStyleTextBox({
             : 'border-2 border-transparent bg-transparent hover:border-dashed hover:border-sky-300'
         }`}
       >
-        {/* Left blue drag handle */}
         {isSelected && (
           <div
             title="Kéo để di chuyển"
@@ -272,7 +268,6 @@ function EdgeStyleTextBox({
           className="min-h-[36px] w-full flex-1 resize-none overflow-hidden bg-transparent px-2.5 py-1.5 font-sans leading-snug outline-none placeholder:text-slate-400"
         />
 
-        {/* Right circular width resize handle */}
         {isSelected && (
           <div
             title="Kéo để thay đổi chiều rộng"
@@ -307,13 +302,11 @@ function EdgeStyleTextBox({
         )}
       </div>
 
-      {/* Edge-style floating toolbar below the text box */}
       {isSelected && (
         <div
           onMouseDown={(e) => e.preventDefault()}
           className="relative mt-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 shadow-lg"
         >
-          {/* Text color picker button */}
           <div className="relative">
             <button
               type="button"
@@ -355,7 +348,6 @@ function EdgeStyleTextBox({
 
           <span className="h-4 w-px bg-slate-200" />
 
-          {/* Increase font size (A^) */}
           <button
             type="button"
             title="Tăng cỡ chữ"
@@ -365,7 +357,6 @@ function EdgeStyleTextBox({
             A<sup className="text-[9px] font-bold">^</sup>
           </button>
 
-          {/* Decrease font size (Aˇ) */}
           <button
             type="button"
             title="Giảm cỡ chữ"
@@ -377,7 +368,6 @@ function EdgeStyleTextBox({
 
           <span className="h-4 w-px bg-slate-200" />
 
-          {/* Increase text spacing (AV↔) */}
           <button
             type="button"
             title="Tăng khoảng cách chữ"
@@ -388,7 +378,6 @@ function EdgeStyleTextBox({
             <span className="text-[9px] leading-none">↔</span>
           </button>
 
-          {/* Decrease text spacing (AV→←) */}
           <button
             type="button"
             title="Giảm khoảng cách chữ"
@@ -401,7 +390,6 @@ function EdgeStyleTextBox({
 
           <span className="h-4 w-px bg-slate-200" />
 
-          {/* Delete button */}
           <button
             type="button"
             title="Xóa"
@@ -440,6 +428,7 @@ export function ExamShell({
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selection, setSelection] = useState<TextSelection | null>(null)
   const [toolMode, setToolMode] = useState<ToolMode>('select')
+  const [pinnedToolbarPos, setPinnedToolbarPos] = useState<{ top: number; left: number } | null>(null)
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLORS[0].value)
   const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([])
 
@@ -540,6 +529,20 @@ export function ExamShell({
     setSelectedTextBoxId(null)
   }, [currentPassage.id])
 
+  // Press Escape to exit Draw / Add Text / Erase mode
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && toolMode !== 'select') {
+        setToolMode('select')
+        setPinnedToolbarPos(null)
+        setEraserClientPos(null)
+        isErasingRef.current = false
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [toolMode])
+
   const answeredCount = useMemo(
     () => exam.questions.filter((question) => isAnswered(answers[getAnswerKey(question.id)])).length,
     [answers, exam.questions],
@@ -570,8 +573,8 @@ export function ExamShell({
     const rect = range.getBoundingClientRect()
     setSelection({
       text,
-      top: Math.max(8, rect.top - 42),
-      left: Math.max(120, Math.min(window.innerWidth - 120, rect.left + rect.width / 2)),
+      top: Math.max(64, rect.top - 46),
+      left: Math.max(160, Math.min(window.innerWidth - 160, rect.left + rect.width / 2)),
       pane,
       passageId: currentPassage.id,
       ...offsets,
@@ -652,15 +655,36 @@ export function ExamShell({
   const passageTextBoxes = edgeTextBoxes.filter((n) => n.pane === 'passage' && n.passageId === currentPassage.id)
   const questionTextBoxes = edgeTextBoxes.filter((n) => n.pane === 'questions' && n.passageId === currentPassage.id)
 
-  const handleToolChange = useCallback((mode: ToolMode) => {
-    setToolMode((prev) => (prev === mode && mode !== 'select' ? 'select' : mode))
+  const handleToolChange = useCallback(
+    (mode: ToolMode) => {
+      setToolMode((prev) => {
+        const nextMode = prev === mode && mode !== 'select' ? 'select' : mode
+        if (nextMode === 'select') {
+          setPinnedToolbarPos(null)
+        } else {
+          setPinnedToolbarPos((currentPinned) =>
+            selection
+              ? { top: selection.top, left: selection.left }
+              : currentPinned ?? { top: 108, left: Math.round(window.innerWidth / 2) },
+          )
+          setSelection(null)
+          window.getSelection()?.removeAllRanges()
+        }
+        return nextMode
+      })
+      setEraserClientPos(null)
+      isErasingRef.current = false
+      setSelectedTextBoxId(null)
+    },
+    [selection],
+  )
+
+  const closeActiveTool = useCallback(() => {
+    setToolMode('select')
+    setPinnedToolbarPos(null)
     setEraserClientPos(null)
     isErasingRef.current = false
-    setSelectedTextBoxId(null)
-    if (mode !== 'select') {
-      setSelection(null)
-      window.getSelection()?.removeAllRanges()
-    }
+    setSelection(null)
   }, [])
 
   const getLocalPoint = (el: HTMLElement | SVGSVGElement, e: React.PointerEvent) => {
@@ -668,9 +692,10 @@ export function ExamShell({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, rect }
   }
 
-  // Freehand Draw handlers
+  // Freehand Draw handlers (fixed continuous stroke drawing)
   const handleDrawStart = (pane: 'passage' | 'questions') => (e: React.PointerEvent<SVGSVGElement>) => {
-    if (toolMode !== 'draw') return
+    if (toolMode !== 'draw' || e.button !== 0) return
+    e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     const { x, y } = getLocalPoint(e.currentTarget, e)
     const stroke: DrawStroke = {
@@ -684,17 +709,21 @@ export function ExamShell({
     setDrawStrokes((prev) => [...prev, stroke])
   }
 
-  const handleDrawMove = () => (e: React.PointerEvent<SVGSVGElement>) => {
+  const handleDrawMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (toolMode !== 'draw' || !drawingStrokeRef.current) return
     const { x, y } = getLocalPoint(e.currentTarget, e)
     const strokeId = drawingStrokeRef.current.id
-    setDrawStrokes((prev) => prev.map((s) => (s.id === strokeId ? { ...s, points: [...s.points, { x, y }] } : s)))
+    setDrawStrokes((prev) =>
+      prev.map((s) => (s.id === strokeId ? { ...s, points: [...s.points, { x, y }] } : s)),
+    )
   }
 
   const handleDrawEnd = (e: React.PointerEvent<SVGSVGElement>) => {
     if (drawingStrokeRef.current) drawingStrokeRef.current = null
     try {
-      e.currentTarget.releasePointerCapture(e.pointerId)
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }
     } catch {
       // ignore
     }
@@ -725,6 +754,7 @@ export function ExamShell({
     setEdgeTextBoxes((prev) => [...prev, newBox])
     setSelectedTextBoxId(newBox.id)
     setToolMode('select')
+    setPinnedToolbarPos(null)
   }
 
   const updateEdgeTextBox = useCallback((id: string, patch: Partial<EdgeTextBox>) => {
@@ -828,6 +858,10 @@ export function ExamShell({
   const hasAnyAnnotations =
     annotations.length > 0 || drawStrokes.length > 0 || edgeTextBoxes.length > 0
 
+  const toolbarPosition = selection
+    ? { top: selection.top, left: selection.left }
+    : pinnedToolbarPos
+
   return (
     <div
       onPointerDown={() => setSelectedTextBoxId(null)}
@@ -849,76 +883,28 @@ export function ExamShell({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          {/* Edge-inspired tools: Draw (Pen), Add Text (T), Erase (Eraser 0.75cm radius) */}
-          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1">
-            <button
-              type="button"
-              onClick={() => handleToolChange('draw')}
-              aria-pressed={toolMode === 'draw'}
-              title="Draw"
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
-                toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
-              }`}
-            >
-              <Pen className="size-3.5" />
-              <span className="hidden md:inline">Draw</span>
-            </button>
-
-            {toolMode === 'draw' && (
-              <div className="flex items-center gap-1 px-1">
-                {DRAW_COLORS.map((color) => (
-                  <button
-                    key={color.value}
-                    type="button"
-                    aria-label={`Draw ${color.name}`}
-                    title={color.name}
-                    onClick={() => setDrawColor(color.value)}
-                    className={`size-4 rounded-full border border-slate-300 transition hover:scale-110 ${
-                      drawColor === color.value ? 'ring-2 ring-sky-600 ring-offset-1' : ''
-                    }`}
-                    style={{ backgroundColor: color.value }}
-                  />
-                ))}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => handleToolChange('text')}
-              aria-pressed={toolMode === 'text'}
-              title="Add text"
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
-                toolMode === 'text' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
-              }`}
-            >
-              <Type className="size-3.5" />
-              <span className="hidden md:inline">Add Text</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleToolChange('eraser')}
-              aria-pressed={toolMode === 'eraser'}
-              title="Erase (vòng tròn bán kính 0.75 cm)"
-              className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold transition ${
-                toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-700 hover:bg-white hover:text-slate-900'
-              }`}
-            >
-              <Eraser className="size-3.5" />
-              <span className="hidden md:inline">Erase</span>
-            </button>
-
-            {toolMode === 'eraser' && hasAnyAnnotations && (
-              <button
-                type="button"
-                onClick={handleEraseAll}
-                title="Xóa tất cả highlight, chữ viết và nét vẽ"
-                className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-100 px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-200"
-              >
-                <Trash2 className="size-3" /> All
-              </button>
-            )}
-          </div>
+          {/* Nút icon gọn mở nhanh thanh Highlight / Draw / Add Text / Erase */}
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              if (toolbarPosition) {
+                closeActiveTool()
+              } else {
+                setPinnedToolbarPos({ top: 108, left: Math.round(window.innerWidth / 2) })
+              }
+            }}
+            aria-label="Công cụ Highlight, Draw, Add Text, Erase"
+            title="Highlight · Draw · Add Text · Erase"
+            className={`size-9 rounded-lg ${
+              toolbarPosition
+                ? 'border-sky-300 bg-sky-50 text-sky-700'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Pen className="size-4" />
+          </Button>
 
           <div
             className={`inline-flex min-w-[100px] items-center justify-center gap-2 rounded-lg border px-2.5 py-1.5 font-mono text-sm font-bold tabular-nums ${
@@ -1239,14 +1225,22 @@ export function ExamShell({
         </div>
       </footer>
 
-      {/* Highlight bar: hidden until user selects text */}
-      {selection && (
+      {/* Unified Floating Highlight + Draw / Add Text / Erase Icon Toolbar */}
+      {toolbarPosition && (
         <AnnotationToolbar
-          position={{ top: selection.top, left: selection.left }}
+          position={toolbarPosition}
           selectedColor={selectedColor}
-          hasHighlight={selection.highlightIds.length > 0}
+          hasSelection={Boolean(selection)}
+          hasHighlight={Boolean(selection?.highlightIds.length)}
+          toolMode={toolMode}
+          drawColor={drawColor}
+          hasAnyAnnotations={hasAnyAnnotations}
           onHighlight={applySelectedHighlight}
-          onClear={clearSelectedHighlights}
+          onClearHighlight={clearSelectedHighlights}
+          onToolChange={handleToolChange}
+          onDrawColorChange={setDrawColor}
+          onEraseAll={handleEraseAll}
+          onClose={closeActiveTool}
         />
       )}
 
