@@ -1,6 +1,6 @@
 'use client'
 
-import { Eraser, StickyNote } from 'lucide-react'
+import { Eraser } from 'lucide-react'
 
 export const HIGHLIGHT_COLORS = [
   { name: 'Yellow', value: '#FEF08A' },
@@ -12,11 +12,12 @@ export const HIGHLIGHT_COLORS = [
 
 export const DRAW_COLORS = [
   { name: 'Red', value: '#DC2626' },
+  { name: 'Dark Blue', value: '#1D4ED8' },
   { name: 'Dark Green', value: '#15803D' },
   { name: 'Orange', value: '#EA580C' },
 ] as const
 
-export type ToolMode = 'select' | 'draw' | 'eraser' | 'note'
+export type ToolMode = 'select' | 'draw' | 'text' | 'eraser'
 
 export function AnnotationToolbar({
   position,
@@ -24,14 +25,12 @@ export function AnnotationToolbar({
   hasHighlight,
   onHighlight,
   onClear,
-  onNote,
 }: {
   position: { top: number; left: number }
   selectedColor: string
   hasHighlight: boolean
   onHighlight: (color: string) => void
   onClear: () => void
-  onNote: () => void
 }) {
   return (
     <div
@@ -39,7 +38,7 @@ export function AnnotationToolbar({
       className="fixed z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2 py-1 shadow-lg backdrop-blur-xs"
       style={{ top: position.top, left: position.left }}
       role="toolbar"
-      aria-label="Highlight and note tools"
+      aria-label="Highlight tools"
     >
       {HIGHLIGHT_COLORS.map((color) => (
         <button
@@ -70,17 +69,6 @@ export function AnnotationToolbar({
           </button>
         </>
       )}
-
-      <span className="mx-0.5 h-4 w-px shrink-0 bg-slate-200" aria-hidden="true" />
-      <button
-        type="button"
-        onClick={onNote}
-        aria-label="Add note for selected text"
-        title="Add note"
-        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-sky-50 px-2 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-100"
-      >
-        <StickyNote className="size-3" /> Note
-      </button>
     </div>
   )
 }
