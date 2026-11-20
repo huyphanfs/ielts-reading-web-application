@@ -36,10 +36,10 @@ export function AnnotationToolbar({
   return (
     <div
       onMouseDown={(e) => e.preventDefault()}
-      className="fixed z-40 flex max-w-[calc(100vw-24px)] -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-lg backdrop-blur"
+      className="fixed z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-2 py-1 shadow-lg backdrop-blur-xs"
       style={{ top: position.top, left: position.left }}
       role="toolbar"
-      aria-label="Highlight and note selection"
+      aria-label="Highlight and note tools"
     >
       {HIGHLIGHT_COLORS.map((color) => (
         <button
@@ -49,7 +49,7 @@ export function AnnotationToolbar({
           aria-label={`Highlight ${color.name}`}
           title={`Highlight ${color.name}`}
           aria-pressed={selectedColor === color.value}
-          className={`size-5 shrink-0 rounded-full border border-slate-300 transition hover:scale-115 ${
+          className={`size-5 shrink-0 rounded-full border border-slate-300 transition hover:scale-110 ${
             selectedColor === color.value ? 'ring-2 ring-sky-600 ring-offset-1' : ''
           }`}
           style={{ backgroundColor: color.value }}
@@ -64,7 +64,7 @@ export function AnnotationToolbar({
             onClick={onClear}
             className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
             aria-label="Remove selected highlight"
-            title="Xóa highlight"
+            title="Clear highlight"
           >
             <Eraser className="size-3" /> Clear
           </button>
@@ -76,8 +76,8 @@ export function AnnotationToolbar({
         type="button"
         onClick={onNote}
         aria-label="Add note for selected text"
-        title="Ghi chú cho đoạn đã chọn"
-        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-sky-50 px-2.5 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-100"
+        title="Add note"
+        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-sky-50 px-2 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-100"
       >
         <StickyNote className="size-3" /> Note
       </button>
