@@ -1,6 +1,6 @@
 'use client'
 
-import { Eraser, Highlighter, StickyNote, Pencil } from 'lucide-react'
+import { Eraser, Highlighter, StickyNote, Pencil, Trash2 } from 'lucide-react'
 
 export const HIGHLIGHT_COLORS = [
   { name: 'Yellow', value: '#FEF08A' },
@@ -12,7 +12,7 @@ export const HIGHLIGHT_COLORS = [
 
 export const DRAW_COLORS = [
   { name: 'Red', value: '#DC2626' },
-  { name: 'Dark Blue', value: '#1E3A8A' },
+  { name: 'Dark Green', value: '#15803D' },
   { name: 'Orange', value: '#EA580C' },
 ] as const
 
@@ -22,10 +22,12 @@ export function AnnotationToolbar({
   position,
   selectedColor,
   hasHighlight,
+  hasAnyAnnotations,
   toolMode,
   drawColor,
   onHighlight,
   onClear,
+  onEraseAll,
   onNote,
   onToolChange,
   onDrawColorChange,
@@ -33,10 +35,12 @@ export function AnnotationToolbar({
   position: { top: number; left: number }
   selectedColor: string
   hasHighlight: boolean
+  hasAnyAnnotations: boolean
   toolMode: ToolMode
   drawColor: string
   onHighlight: (color: string) => void
   onClear: () => void
+  onEraseAll: () => void
   onNote: () => void
   onToolChange: (mode: ToolMode) => void
   onDrawColorChange: (color: string) => void
@@ -66,7 +70,7 @@ export function AnnotationToolbar({
       type="button"
       onClick={() => onToolChange('eraser')}
       aria-pressed={toolMode === 'eraser'}
-      title="Eraser — removes drawings and highlights"
+      title="Eraser — click items or Erase All"
       className={`flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold transition ${toolMode === 'eraser' ? 'bg-rose-100 text-rose-700' : 'text-slate-600 hover:bg-slate-100'}`}
     ><Eraser className="size-3.5" /> Eraser</button>
     <span className="mx-1 h-6 w-px shrink-0 bg-slate-200" aria-hidden="true" />
@@ -83,7 +87,7 @@ export function AnnotationToolbar({
       style={{ backgroundColor: color.value }}
     />)}
 
-    {/* Draw color swatches (shown in draw mode) */}
+    {/* Draw color swatches (shown in draw mode: Red, Dark Green, Orange) */}
     {toolMode === 'draw' && DRAW_COLORS.map((color) => <button
       key={color.value}
       type="button"
@@ -94,6 +98,19 @@ export function AnnotationToolbar({
       className={`size-6 shrink-0 rounded-full border border-slate-300 transition hover:scale-110 ${drawColor === color.value ? 'ring-2 ring-sky-600 ring-offset-2' : ''}`}
       style={{ backgroundColor: color.value }}
     />)}
+
+    {/* Eraser actions (shown in eraser mode) */}
+    {toolMode === 'eraser' && (
+      <button
+        type="button"
+        onClick={onEraseAll}
+        disabled={!hasAnyAnnotations}
+        title="Erase all highlights, drawings, and notes"
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Trash2 className="size-3.5" /> Erase All
+      </button>
+    )}
 
     {/* Clear highlight button (shown in select mode) */}
     {toolMode === 'select' && <>
@@ -108,7 +125,7 @@ export function AnnotationToolbar({
       ><Eraser className="size-3.5" /> Clear</button>
     </>}
 
-    {/* Note button always available */}
+    {/* Note button */}
     {toolMode === 'select' && <>
       <span className="mx-1 h-6 w-px shrink-0 bg-slate-200" aria-hidden="true" />
       <button
