@@ -91,8 +91,163 @@ const AI_FONT_SIZES = [
   { label: '20 px', value: '7' },
 ] as const
 
+const BLOCK_TAG_NAMES = new Set([
+  'P',
+  'DIV',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'LI',
+  'BLOCKQUOTE',
+  'PRE',
+  'SECTION',
+  'ARTICLE',
+  'HEADER',
+  'FOOTER',
+  'TABLE',
+  'UL',
+  'OL',
+  'HR',
+])
+
+const ALLOWED_INLINE_STYLES = new Set([
+  'text-align',
+  'text-indent',
+  'font-weight',
+  'font-style',
+  'text-decoration',
+  'vertical-align',
+  'width',
+  'max-width',
+  'height',
+  'border',
+  'border-collapse',
+  'padding',
+])
+
+function filterSafeCssStyle(rawStyle: string | null): string {
+  if (!rawStyle) return ''
+  const kept: string[] = []
+  for (const decl of rawStyle.split(';')) {
+    const colonIdx = decl.indexOf(':')
+    if (colonIdx === -1) continue
+    const prop = decl.slice(0, colonIdx).trim().toLowerCase()
+    const val = decl.slice(colonIdx + 1).trim()
+    if (!prop || !val || !ALLOWED_INLINE_STYLES.has(prop)) continue
+    if (/expression|javascript:|url\s*\(/i.test(val)) continue
+    kept.push(`${prop}: ${val}`)
+  }
+  return kept.join('; ')
+}
+
+function normalizeClipboardHtml(rawHtml: string): string {
+  if (typeof window === 'undefined' || !rawHtml.trim()) return rawHtml
+
+  const doc = new DOMParser().parseFromString(rawHtml, 'text/html')
+
+  // Xóa thẻ rác từ Word / Google Docs / trình duyệt
+  doc.querySelectorAll('script, style, meta, link, title, xml, o\\:p').forEach((el) => el.remove())
+
+  // Chuyển <span style="..."> (Google Docs / MS Word) thành thẻ ngữ nghĩa <strong>, <em>, <u>, <sub>, <sup>
+  const spans = Array.from(doc.body.querySelectorAll('span'))
+  for (const span of spans.reverse()) {
+    const style = span.style
+    const fontWeight = style.fontWeight?.toLowerCase() || ''
+    const numericWeight = Number(fontWeight)
+    const isBold = fontWeight === 'bold' || fontWeight === 'bolder' || (Number.isFinite(numericWeight) && numericWeight >= 600)
+    const isItalic = style.fontStyle?.toLowerCase() === 'italic'
+    const textDeco = (style.textDecoration || style.textDecorationLine || '').toLowerCase()
+    const isUnderline = textDeco.includes('underline')
+    const isStrike = textDeco.includes('line-through')
+    const vAlign = style.verticalAlign?.toLowerCase() || ''
+
+    let wrapper: HTMLElement | null = null
+    const wrapWith = (tagName: string) => {
+      const el = doc.createElement(tagName)
+      if (wrapper) {
+        el.appendChild(wrapper)
+      } else {
+        while (span.firstChild) el.appendChild(span.firstChild)
+      }
+      wrapper = el
+    }
+
+    if (vAlign === 'super') wrapWith('sup')
+    if (vAlign === 'sub') wrapWith('sub')
+    if (isStrike) wrapWith('s')
+    if (isUnderline) wrapWith('u')
+    if (isItalic) wrapWith('em')
+    if (isBold) wrapWith('strong')
+
+    if (wrapper) {
+      span.replaceWith(wrapper)
+    } else {
+      // Bỏ thẻ span rỗng bọc ngoài nhưng giữ nguyên nội dung bên trong
+      span.replaceWith(...Array.from(span.childNodes))
+    }
+  }
+
+  // Chuyển <div> / <section> / <article> thành <p> để không bị dính dòng khi dán
+  const containers = Array.from(doc.body.querySelectorAll('div, section, article, header, footer'))
+  for (const div of containers.reverse()) {
+    const hasBlockChild = Array.from(div.children).some((child) => BLOCK_TAG_NAMES.has(child.tagName))
+    if (hasBlockChild) {
+      div.replaceWith(...Array.from(div.childNodes))
+    } else {
+      const p = doc.createElement('p')
+      const safeStyle = filterSafeCssStyle(div.getAttribute('style'))
+      if (safeStyle) p.setAttribute('style', safeStyle)
+      while (div.firstChild) p.appendChild(div.firstChild)
+      div.replaceWith(p)
+    }
+  }
+
+  // Lọc style an toàn trên các thẻ còn lại để giữ căn lề, thụt đầu dòng, kích thước bảng/ảnh
+  doc.body.querySelectorAll('*').forEach((el) => {
+    const safeStyle = filterSafeCssStyle(el.getAttribute('style'))
+    if (safeStyle) {
+      el.setAttribute('style', safeStyle)
+    } else {
+      el.removeAttribute('style')
+    }
+  })
+
+  // Bọc các đoạn text trần nằm trực tiếp dưới body thành thẻ <p> để tránh dính dòng với khối kế tiếp
+  const topNodes = Array.from(doc.body.childNodes)
+  let inlineBuffer: Node[] = []
+  const flushInlineBuffer = (beforeNode: Node | null) => {
+    const hasMeaningfulContent = inlineBuffer.some(
+      (n) => (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0) || n.nodeType === Node.ELEMENT_NODE,
+    )
+    if (hasMeaningfulContent) {
+      const p = doc.createElement('p')
+      inlineBuffer.forEach((n) => p.appendChild(n))
+      doc.body.insertBefore(p, beforeNode)
+    } else {
+      inlineBuffer.forEach((n) => n.parentNode?.removeChild(n))
+    }
+    inlineBuffer = []
+  }
+
+  for (const node of topNodes) {
+    const isBlockElement = node.nodeType === Node.ELEMENT_NODE && BLOCK_TAG_NAMES.has((node as Element).tagName)
+    if (isBlockElement) {
+      flushInlineBuffer(node)
+    } else {
+      inlineBuffer.push(node)
+    }
+  }
+  flushInlineBuffer(null)
+
+  return doc.body.innerHTML
+}
+
 function sanitizeRichPaste(html: string): string {
-  const clean = DOMPurify.sanitize(html, {
+  const normalized = normalizeClipboardHtml(html)
+  const clean = DOMPurify.sanitize(normalized, {
     USE_PROFILES: { html: true },
     ALLOWED_TAGS: [
       'p',
@@ -102,10 +257,22 @@ function sanitizeRichPaste(html: string): string {
       'em',
       'i',
       'u',
+      's',
+      'sub',
+      'sup',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
       'img',
       'table',
+      'colgroup',
+      'col',
       'tbody',
       'thead',
+      'tfoot',
       'tr',
       'td',
       'th',
@@ -115,32 +282,13 @@ function sanitizeRichPaste(html: string): string {
       'blockquote',
       'font',
     ],
-    ALLOWED_ATTR: ['src', 'alt', 'width', 'height', 'style', 'size'],
-    FORBID_TAGS: [
-      'script',
-      'iframe',
-      'object',
-      'embed',
-      'form',
-      'input',
-      'button',
-      'style',
-      'span',
-      'div',
-      'h1',
-      'h2',
-      'h3',
-      'h4',
-      'h5',
-      'h6',
-      'a',
-    ],
+    ALLOWED_ATTR: ['src', 'alt', 'width', 'height', 'style', 'size', 'colspan', 'rowspan', 'align', 'valign'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'a'],
     FORBID_ATTR: ['class', 'id', 'srcdoc', 'color', 'face', 'bgcolor', 'background'],
   })
+
   return clean
-    .replace(/<div>/gi, '<p>')
-    .replace(/<\/div>/gi, '</p>')
-    .replace(/<p>\s*<\/p>/g, '')
+    .replace(/<p>\s*(?:&nbsp;|\u00a0)?\s*<\/p>/gi, '')
     .trim()
 }
 
@@ -152,11 +300,63 @@ function escapeHtmlText(text: string) {
 }
 
 function plainTextToHtml(text: string): string {
-  return text
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => (line.trim() ? `<p>${escapeHtmlText(line.trim())}</p>` : '<p><br></p>'))
-    .join('')
+  const normalized = text.replace(/\r\n?/g, '\n').trim()
+  if (!normalized) return ''
+
+  // Tách thành các đoạn văn dựa trên dòng trống hoặc từng dòng xuống hàng rõ ràng
+  const lines = normalized.split('\n')
+  const paragraphs: string[] = []
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
+    paragraphs.push(`<p>${escapeHtmlText(trimmed)}</p>`)
+  }
+
+  return paragraphs.join('')
+}
+
+function insertHtmlAtCursor(editor: HTMLDivElement, html: string) {
+  editor.focus()
+  const sel = window.getSelection()
+
+  // Nếu ô đang trống hoàn toàn, gán trực tiếp để tránh trình duyệt tự bọc <p> lồng nhau
+  const isEffectivelyEmpty =
+    !editor.textContent?.trim() && !editor.querySelector('img, table, ul, ol, blockquote')
+  if (isEffectivelyEmpty) {
+    editor.innerHTML = html
+    const range = document.createRange()
+    range.selectNodeContents(editor)
+    range.collapse(false)
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    return
+  }
+
+  if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+    const range = sel.getRangeAt(0)
+    range.deleteContents()
+
+    const temp = document.createElement('div')
+    temp.innerHTML = html
+    const frag = document.createDocumentFragment()
+    let lastInserted: Node | null = null
+    while (temp.firstChild) {
+      lastInserted = temp.firstChild
+      frag.appendChild(temp.firstChild)
+    }
+
+    range.insertNode(frag)
+    if (lastInserted) {
+      const afterRange = document.createRange()
+      afterRange.setStartAfter(lastInserted)
+      afterRange.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(afterRange)
+    }
+  } else {
+    editor.insertAdjacentHTML('beforeend', html)
+  }
 }
 
 function ToolbarButton({
@@ -300,13 +500,19 @@ function RichFormatTextBox({
     e.preventDefault()
     const html = e.clipboardData.getData('text/html')
     const plain = e.clipboardData.getData('text/plain')
-    const cleanHtml = html
-      ? sanitizeRichPaste(html)
-      : autoFormatOnPaste
+
+    let cleanHtml = ''
+    if (html && html.trim()) {
+      cleanHtml = sanitizeRichPaste(html)
+    }
+    if (!cleanHtml && plain) {
+      cleanHtml = autoFormatOnPaste
         ? plainTextToHtml(plain)
-        : `<p>${escapeHtmlText(plain.replace(/\r/g, '')).replace(/\n/g, '<br>')}</p>`
-    if (cleanHtml) {
-      document.execCommand('insertHTML', false, cleanHtml)
+        : `<p>${escapeHtmlText(plain.replace(/\r\n?/g, '\n')).replace(/\n/g, '<br>')}</p>`
+    }
+
+    if (cleanHtml && editorRef.current) {
+      insertHtmlAtCursor(editorRef.current, cleanHtml)
       onContentChange?.()
     }
   }
@@ -316,12 +522,20 @@ function RichFormatTextBox({
     const el = editorRef.current
     if (!el) return
     el.focus()
-    const plain = el.innerText.trim()
-    if (plain && !el.querySelector('img') && !el.querySelector('table')) {
-      el.innerHTML = plainTextToHtml(plain)
+
+    // Giữ nguyên toàn bộ thẻ format (<strong>, <em>, <u>, <h1>-<h6>, <table>, <img>...), chỉ tách đoạn & <br> gọn gàng
+    const currentHtml = el.innerHTML.trim()
+    if (!currentHtml) return
+
+    const normalizedHtml = sanitizeRichPaste(
+      currentHtml
+        .replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p>')
+        .replace(/<br\s*\/?>/gi, '</p><p>'),
+    )
+
+    if (normalizedHtml) {
+      el.innerHTML = normalizedHtml
       onContentChange?.()
-    } else {
-      document.execCommand('formatBlock', false, 'p')
     }
   }
 
@@ -889,7 +1103,7 @@ export function AIParseTestModal({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-indigo-500 text-white">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-xs">
               <Sparkles className="size-5" />
             </span>
             <div>
@@ -982,13 +1196,13 @@ export function AIParseTestModal({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                    <Tag className="size-3.5 text-indigo-600" />
+                    <Tag className="size-3.5 text-sky-600" />
                     Chủ đề bài đọc (Topic)
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                       reachedMaxTopics
-                        ? 'bg-indigo-100 text-indigo-800'
+                        ? 'bg-sky-100 text-sky-800'
                         : 'bg-slate-100 text-slate-600'
                     }`}
                   >
@@ -1032,10 +1246,10 @@ export function AIParseTestModal({
                       onClick={() => toggleTopic(topicItem)}
                       className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                         isSelected
-                          ? 'border-indigo-600 bg-indigo-600 text-white shadow-xs'
+                          ? 'border-sky-600 bg-sky-600 text-white shadow-xs'
                           : isDisabled
                             ? 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 opacity-50'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50/70 hover:text-sky-700'
                       }`}
                     >
                       <Tag className="size-3" />
@@ -1109,12 +1323,12 @@ export function AIParseTestModal({
           <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
-                <span className="flex size-7 items-center justify-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-700">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-blue-100 text-xs font-bold text-blue-700">
                   2
                 </span>
                 <div>
                   <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
-                    <HelpCircle className="size-4 text-indigo-600" />
+                    <HelpCircle className="size-4 text-blue-600" />
                     Phần 2: Nội dung Câu hỏi (Questions)
                   </h3>
                   <p className="text-xs text-slate-500">
@@ -1179,7 +1393,7 @@ export function AIParseTestModal({
                 type="button"
                 onClick={() => void handleExtractQuestions()}
                 disabled={parsingQuestions || savingPassage}
-                className="h-9 rounded-lg bg-indigo-600 px-4 text-xs font-semibold text-white hover:bg-indigo-700"
+                className="h-9 rounded-lg bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-700"
               >
                 {parsingQuestions ? (
                   <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
