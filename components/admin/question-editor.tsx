@@ -1,14 +1,34 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Save, X } from 'lucide-react'
+import { Check, ListPlus, Plus, Save, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { MiniRichTextEditor, RichTextEditor } from '@/components/admin/rich-text-editor'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeHtml } from '@/lib/sanitize'
 import type { ExamGroup, Question } from '@/lib/types'
 
 const supabase = createClient()
 
-type Choice = { value: string; label: string }
+type Choice = { value: string; label: string; plainLabel: string }
+
+function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isHtmlEmpty(html: string): boolean {
+  if (!html) return true
+  if (/<img\b/i.test(html)) return false
+  return stripHtmlTags(html).length === 0
+}
 
 function getDefaultCategoryOptions(category: string): string[] {
   const normalized = category.toLowerCase()
@@ -49,8 +69,9 @@ function parseQuestionRange(range: string): number[] {
 
 function toChoices(values: string[]): Choice[] {
   return values.map((label) => {
-    const match = label.match(/^([A-Z])\s*[.)\-:]/i)
-    return { value: match?.[1]?.toUpperCase() ?? label, label }
+    const plainLabel = stripHtmlTags(label)
+    const match = plainLabel.match(/^([A-Z])\s*[.)\-:]/i)
+    return { value: match?.[1]?.toUpperCase() ?? plainLabel, label, plainLabel }
   })
 }
 
@@ -82,7 +103,12 @@ export function QuestionEditor({
 
   const [number, setNumber] = useState(String(question?.question_number ?? nextNumber))
   const [questionText, setQuestionText] = useState(question?.question_text ?? '')
-  const [optionsText, setOptionsText] = useState(() => resolveInitialOptions(group, question).join('\n'))
+  const [optionsList, setOptionsList] = useState<string[]>(() => {
+    const initial = resolveInitialOptions(group, question)
+    return initial.length ? initial : ['', '', '', '']
+  })
+  const [bulkMode, setBulkMode] = useState(false)
+  const [bulkText, setBulkText] = useState('')
   const [singleAnswer, setSingleAnswer] = useState(() => {
     const accepted = Array.isArray(question?.accepted_answers)
       ? question.accepted_answers.filter((item): item is string => typeof item === 'string')
@@ -122,7 +148,8 @@ export function QuestionEditor({
 
     setNumber(String(baseNum))
     setQuestionText(question?.question_text ?? '')
-    setOptionsText(resolvedOpts.join('\n'))
+    setOptionsList(resolvedOpts.length ? resolvedOpts : ['', '', '', ''])
+    setBulkMode(false)
     setSingleAnswer(resolveSingleAnswer(initialChoices, accepted))
     setSelectedAnswers(accepted)
     setTextAnswers([accepted[0] ?? '', accepted[1] ?? '', accepted[2] ?? ''])
@@ -132,9 +159,36 @@ export function QuestionEditor({
   }, [group.id, group.question_category, nextNumber, question?.id])
 
   const choices = useMemo(
-    () => toChoices(optionsText.split('\n').map((item) => item.trim()).filter(Boolean)),
-    [optionsText],
+    () =>
+      toChoices(
+        optionsList
+          .map((item) => sanitizeHtml(item).trim())
+          .filter((item) => !isHtmlEmpty(item)),
+      ),
+    [optionsList],
   )
+
+  const handleOptionChange = (index: number, nextHtml: string) => {
+    setOptionsList((current) => current.map((item, idx) => (idx === index ? nextHtml : item)))
+  }
+
+  const addOptionRow = () => {
+    const nextLetter = String.fromCharCode(65 + optionsList.length)
+    setOptionsList((current) => [...current, `${nextLetter}. `])
+  }
+
+  const removeOptionRow = (index: number) => {
+    setOptionsList((current) => (current.length > 1 ? current.filter((_, idx) => idx !== index) : ['']))
+  }
+
+  const applyBulkOptions = () => {
+    const lines = bulkText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (lines.length) setOptionsList(lines)
+    setBulkMode(false)
+  }
 
   const handleRangeChange = (val: string) => {
     setQuestionRange(val)
@@ -170,7 +224,9 @@ export function QuestionEditor({
       setError('Số câu phải là số nguyên lớn hơn 0.')
       return
     }
-    const parsedOptions = optionsText.split('\n').map((item) => item.trim()).filter(Boolean)
+    const parsedOptions = optionsList
+      .map((item) => sanitizeHtml(item).trim())
+      .filter((item) => !isHtmlEmpty(item))
     const options = parsedOptions.length ? parsedOptions : getDefaultCategoryOptions(group.question_category)
     const accepted = isTextInput
       ? textAnswers.map((answer) => answer.trim()).filter(Boolean)
@@ -185,9 +241,11 @@ export function QuestionEditor({
       return
     }
     if (!isTextInput && !options.length) {
-      setError('Thêm các lựa chọn vào danh sách, mỗi lựa chọn trên một dòng.')
+      setError('Thêm ít nhất một lựa chọn.')
       return
     }
+
+    const cleanedExplanation = sanitizeHtml(explanation).trim()
 
     setSaving(true)
     const payload = {
@@ -197,7 +255,7 @@ export function QuestionEditor({
       question_text: questionText.trim() || null,
       options: isTextInput ? null : options,
       accepted_answers: accepted,
-      explanation: explanation.trim() || null,
+      explanation: isHtmlEmpty(cleanedExplanation) ? null : cleanedExplanation,
     }
     const result = question?.id
       ? await supabase.from('questions').update(payload).eq('id', question.id)
@@ -242,19 +300,77 @@ export function QuestionEditor({
         </div>
       ) : (
         <div className="mt-4 space-y-3">
-          <label className="block text-xs font-semibold text-slate-600">
-            Các lựa chọn{' '}
-            <span className="font-normal text-slate-400">
-              {isDefaultTfOrYn ? '(tự động mặc định theo nhóm câu hỏi)' : '(mỗi lựa chọn một dòng)'}
-            </span>
-            <textarea
-              value={optionsText}
-              onChange={(event) => setOptionsText(event.target.value)}
-              rows={isDefaultTfOrYn ? 3 : 4}
-              placeholder={'A. Option one\nB. Option two\nC. Option three'}
-              className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400"
-            />
-          </label>
+          <div>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-600">
+                Các lựa chọn{' '}
+                <span className="font-normal text-slate-400">
+                  {isDefaultTfOrYn ? '(tự động mặc định theo nhóm câu hỏi)' : '(hỗ trợ tô đậm/nhạt, in nghiêng)'}
+                </span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!bulkMode) setBulkText(optionsList.map(stripHtmlTags).join('\n'))
+                    setBulkMode((prev) => !prev)
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  <ListPlus className="size-3.5" />
+                  {bulkMode ? 'Quay lại Rich Text' : 'Dán nhanh nhiều dòng'}
+                </button>
+                {!bulkMode && (
+                  <button
+                    type="button"
+                    onClick={addOptionRow}
+                    className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700 hover:bg-sky-100"
+                  >
+                    <Plus className="size-3.5" /> Thêm lựa chọn
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {bulkMode ? (
+              <div className="space-y-2">
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  rows={4}
+                  placeholder={'A. Option one\nB. Option two\nC. Option three'}
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400"
+                />
+                <div className="flex justify-end">
+                  <Button type="button" size="sm" onClick={applyBulkOptions} className="h-8 rounded-lg bg-sky-600 text-xs text-white hover:bg-sky-700">
+                    Áp dụng danh sách
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {optionsList.map((optValue, index) => (
+                  <div key={index} className="flex items-start gap-2">
+                    <MiniRichTextEditor
+                      label={`Lựa chọn ${index + 1}`}
+                      value={optValue}
+                      onChange={(html) => handleOptionChange(index, html)}
+                      placeholder={`${String.fromCharCode(65 + index)}. Nhập nội dung lựa chọn...`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeOptionRow(index)}
+                      aria-label={`Xóa lựa chọn ${index + 1}`}
+                      className="mt-2 rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {group.input_type === 'combo_box' ? (
             <label className="block text-xs font-semibold text-slate-600">
               Đáp án đúng
@@ -262,7 +378,7 @@ export function QuestionEditor({
                 <option value="">Chọn một đáp án</option>
                 {choices.map((choice) => (
                   <option key={choice.value} value={choice.value}>
-                    {choice.label}
+                    {choice.plainLabel}
                   </option>
                 ))}
               </select>
@@ -300,7 +416,10 @@ export function QuestionEditor({
                       <label key={choice.value} className={`relative inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium ${checked ? 'border-sky-300 bg-white text-sky-800' : 'border-slate-200 bg-white text-slate-600'}`}>
                         <input type="checkbox" checked={checked} onChange={() => toggleMultiAnswer(choice.value, checked)} className="absolute inset-0 m-0 size-full cursor-pointer opacity-0" />
                         <span className={`flex size-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300'}`}>{checked && <Check className="size-3" />}</span>
-                        <span>{choice.label}</span>
+                        <span
+                          className="[&_em]:italic [&_strong]:font-bold [&_u]:underline"
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(choice.label) }}
+                        />
                       </label>
                     )
                   })}
@@ -311,10 +430,18 @@ export function QuestionEditor({
         </div>
       )}
 
-      <label className="mt-4 block text-xs font-semibold text-slate-600">
-        Giải thích
-        <textarea value={explanation} onChange={(event) => setExplanation(event.target.value)} rows={2} placeholder="Giải thích ngắn gọn vì sao đáp án đúng..." className="mt-1.5 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400" />
-      </label>
+      <div className="mt-4">
+        <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+          Giải thích <span className="font-normal text-slate-400">(hỗ trợ tô đậm/nhạt, in nghiêng, bảng, hình ảnh)</span>
+        </label>
+        <RichTextEditor
+          label="Giải thích câu hỏi"
+          value={explanation}
+          onChange={setExplanation}
+          minHeight={130}
+        />
+      </div>
+
       {error && (
         <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>
       )}
