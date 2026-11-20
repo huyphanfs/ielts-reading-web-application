@@ -8,6 +8,10 @@ import type { ExamGroup, UserAnswer } from '@/lib/types'
 
 const ROMAN_NUMERALS = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv']
 
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
+}
+
 function isMatchingCategory(category?: string | null) {
   return (category ?? '').toLowerCase().includes('matching')
 }
@@ -32,26 +36,47 @@ function isMultipleChoice(category?: string | null) {
   return c.includes('multiple choice')
 }
 
-function isShortAnswer(category?: string | null) {
-  const c = (category ?? '').toLowerCase()
-  return c.includes('short answer')
-}
-
-function normalizeOptionLabel(item: string): { prefix: string; rest: string; isRoman: boolean } {
+function normalizeOptionLabel(item: string): { prefix: string; rest: string; isRoman: boolean; hasHtml: boolean } {
   const trimmed = item.trim()
+  const hasHtml = /<[a-z][\s\S]*>/i.test(trimmed)
+
+  if (hasHtml) {
+    // Strip outer single <p> or <div> wrapper if present
+    const unwrapped = trimmed.replace(/^<(p|div)[^>]*>([\s\S]*)<\/\1>$/i, '$2').trim()
+    return { prefix: '', rest: unwrapped, isRoman: false, hasHtml: true }
+  }
+
   // Check for Roman numeral prefix: i, ii, iii, etc.
   const romanMatch = trimmed.match(/^([ivx]+)([.)]?)\s*(.*)/i)
   if (romanMatch && ROMAN_NUMERALS.includes(romanMatch[1].toLowerCase())) {
-    const prefix = romanMatch[2] ? `${romanMatch[1]}.` : `${romanMatch[1]}.`
-    return { prefix: prefix.toLowerCase(), rest: romanMatch[3], isRoman: true }
+    const prefix = `${romanMatch[1]}.`
+    return { prefix: prefix.toLowerCase(), rest: romanMatch[3], isRoman: true, hasHtml: false }
   }
   // Check for letter prefix: A, B, C, etc.
   const letterMatch = trimmed.match(/^([A-Za-z])([.)\-:]?)\s*(.*)/)
   if (letterMatch && letterMatch[1].length === 1 && /[A-Za-z]/.test(letterMatch[1])) {
     const prefix = `${letterMatch[1].toUpperCase()}.`
-    return { prefix, rest: letterMatch[3], isRoman: false }
+    return { prefix, rest: letterMatch[3], isRoman: false, hasHtml: false }
   }
-  return { prefix: '', rest: trimmed, isRoman: false }
+  return { prefix: '', rest: trimmed, isRoman: false, hasHtml: false }
+}
+
+function OptionLabelText({ label }: { label: string }) {
+  const { prefix, rest, hasHtml } = normalizeOptionLabel(label)
+  if (hasHtml) {
+    return (
+      <span
+        className="[&_em]:italic [&_strong]:font-bold [&_u]:underline"
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(rest) }}
+      />
+    )
+  }
+  return (
+    <span>
+      {prefix && <span className="font-bold">{prefix} </span>}
+      {rest || label}
+    </span>
+  )
 }
 
 function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) {
@@ -61,8 +86,9 @@ function getOptions(question: ExamGroup['questions'][number], group: ExamGroup) 
   if (Array.isArray(raw)) {
     items = raw.flatMap((item) => {
       if (typeof item === 'string') {
-        const match = item.match(/^([A-Z])\s*[.)\-:]/i)
-        return [{ value: match?.[1]?.toUpperCase() ?? item, label: item }]
+        const plain = stripHtml(item)
+        const match = plain.match(/^([A-Z])\s*[.)\-:]/i)
+        return [{ value: match?.[1]?.toUpperCase() ?? plain, label: item }]
       }
       if (item && typeof item === 'object') {
         const record = item as Record<string, unknown>
@@ -98,10 +124,20 @@ function getSharedOptionList(group: ExamGroup): string[] {
 }
 
 function renderSharedOption(group: ExamGroup, opt: string, index: number) {
-  const { prefix, rest, isRoman } = normalizeOptionLabel(opt)
+  const { prefix, rest, hasHtml } = normalizeOptionLabel(opt)
   const mc = isMultipleChoice(group.question_category)
   const headings = isMatchingHeadings(group.question_category)
   const features = isMatchingFeatures(group.question_category)
+
+  if (hasHtml) {
+    return (
+      <li
+        key={index}
+        className="leading-snug text-[14px] text-slate-800 [&_em]:italic [&_strong]:font-bold [&_u]:underline"
+        dangerouslySetInnerHTML={{ __html: sanitizeHtml(rest) }}
+      />
+    )
+  }
 
   if (headings || features || mc) {
     return (
@@ -159,11 +195,8 @@ function QuestionControl({
   const matching = isMatchingCategory(group.question_category)
   const options = getOptions(question, group)
   const selected: string[] = Array.isArray(answer) ? answer.filter((item): item is string => typeof item === 'string') : []
-  const mc = isMultipleChoice(group.question_category)
-  const shortAnswer = isShortAnswer(group.question_category)
 
   if (group.input_type === 'text_box' || matching) {
-    const isShortAnswerInput = shortAnswer && !matching
     return (
       <div className="flex w-full items-center gap-2.5">
         {showPrefixBadge && (
@@ -174,7 +207,7 @@ function QuestionControl({
         <input
           id={`input-${question.id}`}
           type="text"
-          size={isShortAnswerInput ? 45 : undefined}
+          size={matching ? undefined : 45}
           aria-label={`Question ${question.question_number}`}
           placeholder={showPrefixBadge ? undefined : String(question.question_number)}
           value={typeof answer === 'string' ? answer : ''}
@@ -183,11 +216,7 @@ function QuestionControl({
           className={`h-9.5 rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
             matching
               ? 'w-[115px] text-center font-semibold placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
-              : isShortAnswerInput
-                ? 'w-full max-w-[340px] placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
-                : showPrefixBadge
-                  ? 'w-full max-w-[240px]'
-                  : 'w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
+              : 'w-[45ch] max-w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
           }`}
         />
       </div>
@@ -201,7 +230,6 @@ function QuestionControl({
         <legend className="sr-only">Choose one answer for question {question.question_number}</legend>
         {options.map((option) => {
           const checked = currentValue === option.value
-          const { prefix, rest } = normalizeOptionLabel(option.label)
           return (
             <label
               key={option.value}
@@ -226,10 +254,7 @@ function QuestionControl({
               >
                 {checked && <span className="size-2 rounded-full bg-white" />}
               </span>
-              <span>
-                {prefix && <span className="font-bold">{prefix} </span>}
-                {rest || option.label}
-              </span>
+              <OptionLabelText label={option.label} />
             </label>
           )
         })}
@@ -259,7 +284,6 @@ function QuestionControl({
         {options.map((option) => {
           const checked = selected.includes(option.value)
           const disabled = !checked && atMax
-          const { prefix, rest } = normalizeOptionLabel(option.label)
           return (
             <label
               key={option.value}
@@ -280,10 +304,7 @@ function QuestionControl({
               >
                 {checked && <Check className="size-3.5" />}
               </span>
-              <span>
-                {prefix && <span className="font-bold">{prefix} </span>}
-                {rest || option.label}
-              </span>
+              <OptionLabelText label={option.label} />
             </label>
           )
         })}
