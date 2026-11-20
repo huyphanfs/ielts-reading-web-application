@@ -37,6 +37,20 @@ function isMultipleChoice(category?: string | null) {
   return c.includes('multiple choice')
 }
 
+function hasMatchingInlinePlaceholder(
+  sharedContent: string | null | undefined,
+  questions: ExamGroup['questions'],
+): boolean {
+  if (!sharedContent) return false
+  const textOnly = stripHtml(sharedContent)
+  return questions.some((q) => {
+    const n = q.question_number
+    const bracketRe = new RegExp(`\\[\\s*${n}\\s*\\]`)
+    const dottedRe = new RegExp(`(?:^|[^\\d\\w])${n}(?:(?:\\s*[._…]+){3,})`)
+    return bracketRe.test(textOnly) || dottedRe.test(textOnly)
+  })
+}
+
 function normalizeOptionLabel(item: string): { prefix: string; rest: string; isRoman: boolean; hasHtml: boolean } {
   const trimmed = item.trim()
   const hasHtml = /<[a-z][\s\S]*>/i.test(trimmed)
@@ -167,11 +181,36 @@ function renderSharedOption(group: ExamGroup, opt: string, index: number) {
 export function SharedContentAnswers({ group }: { group: ExamGroup }) {
   const markup = useMemo(() => {
     const safe = sanitizeHtml(group.shared_content)
-    return safe.replace(/\[*(\d+)\]*/g, (placeholder, rawNumber: string) => {
-      const question = group.questions.find((item) => item.question_number === Number(rawNumber))
-      if (!question) return placeholder
-      return `<span class="inline-blank-marker" data-target-input="input-${question.id}" title="Click to answer question ${question.question_number}"><strong>${question.question_number}</strong>....................</span>`
-    })
+    if (!safe) return ''
+
+    const questionMap = new Map(group.questions.map((item) => [item.question_number, item]))
+
+    // Chuẩn hóa trường hợp số câu được in đậm kèm dấu chấm phía sau (vd: <strong>7</strong> ...............)
+    const normalized = safe.replace(
+      /<(strong|b)>\s*(\[?\s*\d+\s*\]?)\s*<\/\1>((?:\s*[._…]+){3,})/gi,
+      '$2$3',
+    )
+
+    // Tách riêng thẻ HTML (<...>) và nội dung văn bản để tuyệt đối không làm hỏng thuộc tính của thẻ HTML
+    const tokens = normalized.split(/(<[^>]+>)/g)
+    const placeholderRegex =
+      /\[\s*(\d+)\s*\](?:(?:\s*[._…]+){2,})?|(^|[^\d\w\[])(\d+)(?:(?:\s*[._…]+){3,})/g
+
+    return tokens
+      .map((token) => {
+        if (token.startsWith('<')) return token
+        return token.replace(
+          placeholderRegex,
+          (fullMatch, bracketNum: string | undefined, prefix: string | undefined, dottedNum: string | undefined) => {
+            const rawNumber = bracketNum ?? dottedNum
+            const leading = bracketNum ? '' : (prefix ?? '')
+            const question = rawNumber ? questionMap.get(Number(rawNumber)) : undefined
+            if (!question) return fullMatch
+            return `${leading}<span class="inline-blank-marker" data-target-input="input-${question.id}" title="Click to answer question ${question.question_number}"><strong>${question.question_number}</strong>....................</span>`
+          },
+        )
+      })
+      .join('')
   }, [group.shared_content, group.questions])
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -207,6 +246,7 @@ function QuestionControl({
   const selected: string[] = Array.isArray(answer) ? answer.filter((item): item is string => typeof item === 'string') : []
 
   if (group.input_type === 'text_box' || matching) {
+    const currentValue = typeof answer === 'string' ? answer : ''
     return (
       <div className="flex w-full items-center gap-2.5">
         {showPrefixBadge && (
@@ -214,21 +254,28 @@ function QuestionControl({
             {question.question_number}
           </span>
         )}
-        <input
-          id={`input-${question.id}`}
-          type="text"
-          size={matching ? undefined : 18}
-          aria-label={`Question ${question.question_number}`}
-          placeholder={showPrefixBadge ? undefined : String(question.question_number)}
-          value={typeof answer === 'string' ? answer : ''}
-          onChange={(event) => onAnswer(event.target.value)}
-          autoComplete="off"
-          className={`h-9.5 rounded-md border border-slate-300 bg-white px-3 text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
-            matching
-              ? 'w-[115px] text-center font-semibold placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
-              : 'w-[18ch] max-w-full placeholder:text-center placeholder:font-bold placeholder:text-slate-500'
-          }`}
-        />
+        <div className={`relative ${matching ? 'w-[115px]' : 'w-[18ch] max-w-full'}`}>
+          {currentValue.length === 0 && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-3 flex items-center select-none text-[15px] font-bold text-slate-400"
+            >
+              {question.question_number}
+            </span>
+          )}
+          <input
+            id={`input-${question.id}`}
+            type="text"
+            size={matching ? undefined : 18}
+            aria-label={`Question ${question.question_number}`}
+            value={currentValue}
+            onChange={(event) => onAnswer(event.target.value)}
+            autoComplete="off"
+            className={`h-9.5 w-full rounded-md border border-slate-300 bg-white px-3 text-left text-[15px] text-slate-900 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100 ${
+              matching ? 'font-semibold' : ''
+            }`}
+          />
+        </div>
       </div>
     )
   }
@@ -350,7 +397,7 @@ export function QuestionGroupCard({
   const matchingFeatures = isMatchingFeatures(group.question_category)
   const mc = isMultipleChoice(group.question_category)
   const isTextInput = group.input_type === 'text_box' || matching
-  const hasInlineAnswers = isTextInput && Boolean(group.shared_content?.match(/\[?\d+\]?/))
+  const hasInlineAnswers = isTextInput && hasMatchingInlinePlaceholder(group.shared_content, group.questions)
   const hideSharedOptions = matchingInfo
   const sharedOptionList = !hideSharedOptions && (matching || isTextInput) ? getSharedOptionList(group) : []
   const isStyledOptionList = matchingHeadings || matchingFeatures || mc
