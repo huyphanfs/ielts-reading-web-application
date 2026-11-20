@@ -8,12 +8,11 @@ import {
   Eraser,
   GripHorizontal,
   Italic,
-  Minus,
   Pause,
   Pencil,
   Play,
-  Plus,
   Send,
+  SquarePen,
   StickyNote,
   Trash2,
   X,
@@ -60,10 +59,9 @@ type CanvasTextNote = {
   y: number
   width: number
   height: number
-  text: string
+  html: string
+  plainText: string
   fontSize: number
-  bold: boolean
-  italic: boolean
   textColor: string
 }
 
@@ -77,7 +75,7 @@ type LocalRect = {
 
 const NOTE_TEXT_COLORS = [
   { name: 'Đỏ', value: '#DC2626' },
-  { name: 'Xám', value: '#475569' },
+  { name: 'Xám', value: '#64748B' },
   { name: 'Xanh lá', value: '#16A34A' },
   { name: 'Cam', value: '#EA580C' },
   { name: 'Xanh biển', value: '#0284C7' },
@@ -184,6 +182,248 @@ function countWords(html: string) {
   return plainText.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length
 }
 
+function TransparentNoteBox({
+  box,
+  autoFocus,
+  onUpdate,
+  onDelete,
+}: {
+  box: CanvasTextNote
+  autoFocus: boolean
+  onUpdate: (id: string, patch: Partial<CanvasTextNote>) => void
+  onDelete: (id: string) => void
+}) {
+  const editorRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+  const resizeRef = useRef<{ startX: number; startY: number; origW: number; origH: number } | null>(null)
+  const [focused, setFocused] = useState(autoFocus)
+
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    if (el.innerHTML !== box.html) {
+      el.innerHTML = box.html
+    }
+    if (autoFocus) {
+      el.focus()
+    }
+  }, [autoFocus])
+
+  const applyFormat = (cmd: 'bold' | 'italic') => {
+    const el = editorRef.current
+    if (!el) return
+    el.focus()
+    document.execCommand(cmd, false)
+    onUpdate(box.id, { html: el.innerHTML, plainText: el.innerText })
+  }
+
+  const applyColor = (color: string) => {
+    const el = editorRef.current
+    onUpdate(box.id, { textColor: color })
+    if (!el) return
+    el.focus()
+    const sel = window.getSelection()
+    if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) {
+      document.execCommand('foreColor', false, color)
+      onUpdate(box.id, { html: el.innerHTML, plainText: el.innerText, textColor: color })
+    }
+  }
+
+  const changeFontSize = (delta: number) => {
+    const nextSize = Math.max(11, Math.min(32, box.fontSize + delta))
+    onUpdate(box.id, { fontSize: nextSize })
+  }
+
+  return (
+    <div
+      style={{
+        left: box.x,
+        top: box.y,
+        width: box.width,
+        height: box.height,
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseUp={(e) => e.stopPropagation()}
+      onKeyUp={(e) => e.stopPropagation()}
+      className={`group pointer-events-auto absolute z-30 flex flex-col rounded-lg bg-transparent transition ${
+        focused
+          ? 'border border-dashed border-sky-400/90'
+          : 'border border-transparent hover:border-dashed hover:border-slate-400/70'
+      }`}
+    >
+      {/* Thanh công cụ nổi nhỏ phía trên textbox (hiện khi hover hoặc đang nhập) */}
+      <div
+        onMouseDown={(e) => e.preventDefault()}
+        className={`absolute -top-8 left-0 z-40 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 px-1.5 py-0.5 shadow-md backdrop-blur transition-opacity ${
+          focused ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+        }`}
+      >
+        {/* Kéo di chuyển */}
+        <span
+          title="Kéo thả để di chuyển"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.stopPropagation()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            dragRef.current = { startX: e.clientX, startY: e.clientY, origX: box.x, origY: box.y }
+          }}
+          onPointerMove={(e) => {
+            const d = dragRef.current
+            if (!d) return
+            onUpdate(box.id, {
+              x: Math.max(0, d.origX + (e.clientX - d.startX)),
+              y: Math.max(0, d.origY + (e.clientY - d.startY)),
+            })
+          }}
+          onPointerUp={(e) => {
+            if (dragRef.current) {
+              dragRef.current = null
+              try {
+                e.currentTarget.releasePointerCapture(e.pointerId)
+              } catch {
+                // ignore
+              }
+            }
+          }}
+          className="flex h-5 cursor-grab items-center px-1 text-slate-400 hover:text-slate-700 active:cursor-grabbing"
+        >
+          <GripHorizontal className="size-3.5" />
+        </span>
+
+        <span className="h-3.5 w-px bg-slate-200" />
+
+        {/* Chỉnh cỡ chữ lớn nhỏ */}
+        <button
+          type="button"
+          onClick={() => changeFontSize(-1)}
+          title="Giảm cỡ chữ"
+          className="flex h-5 items-center rounded px-1 text-[10px] font-bold text-slate-600 hover:bg-slate-100"
+        >
+          A-
+        </button>
+        <span className="min-w-[22px] text-center text-[10px] font-semibold tabular-nums text-slate-500">
+          {box.fontSize}
+        </span>
+        <button
+          type="button"
+          onClick={() => changeFontSize(1)}
+          title="Tăng cỡ chữ"
+          className="flex h-5 items-center rounded px-1 text-[11px] font-bold text-slate-600 hover:bg-slate-100"
+        >
+          A+
+        </button>
+
+        <span className="h-3.5 w-px bg-slate-200" />
+
+        {/* Bold & Italic */}
+        <button
+          type="button"
+          onClick={() => applyFormat('bold')}
+          title="In đậm (Bold)"
+          className="flex size-5 items-center justify-center rounded text-slate-700 hover:bg-slate-100"
+        >
+          <Bold className="size-3" />
+        </button>
+        <button
+          type="button"
+          onClick={() => applyFormat('italic')}
+          title="In nghiêng (Italic)"
+          className="flex size-5 items-center justify-center rounded text-slate-700 hover:bg-slate-100"
+        >
+          <Italic className="size-3" />
+        </button>
+
+        <span className="h-3.5 w-px bg-slate-200" />
+
+        {/* 5 màu chữ: Đỏ, Xám, Xanh lá, Cam, Xanh biển */}
+        {NOTE_TEXT_COLORS.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            title={`Chữ màu ${c.name}`}
+            aria-label={`Chữ màu ${c.name}`}
+            onClick={() => applyColor(c.value)}
+            className={`size-3.5 rounded-full border border-slate-300 transition hover:scale-125 ${
+              box.textColor === c.value ? 'ring-2 ring-slate-400 ring-offset-1' : ''
+            }`}
+            style={{ backgroundColor: c.value }}
+          />
+        ))}
+
+        <span className="h-3.5 w-px bg-slate-200" />
+
+        {/* Xóa textbox */}
+        <button
+          type="button"
+          onClick={() => onDelete(box.id)}
+          title="Xóa khung chữ"
+          aria-label="Xóa khung chữ"
+          className="flex size-5 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+
+      {/* Vùng nhập chữ trong suốt */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-label="Transparent note textbox"
+        data-placeholder="Nhập ghi chú..."
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onInput={(e) =>
+          onUpdate(box.id, {
+            html: e.currentTarget.innerHTML,
+            plainText: e.currentTarget.innerText,
+          })
+        }
+        style={{
+          fontSize: `${box.fontSize}px`,
+          color: box.textColor,
+        }}
+        className="min-h-0 w-full flex-1 overflow-y-auto bg-transparent p-1.5 leading-snug outline-none empty:before:pointer-events-none empty:before:text-slate-400/80 empty:before:content-[attr(data-placeholder)] [&_em]:italic [&_strong]:font-bold"
+      />
+
+      {/* Góc kéo thay đổi kích thước */}
+      <div
+        title="Kéo để đổi kích thước"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.stopPropagation()
+          e.currentTarget.setPointerCapture(e.pointerId)
+          resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: box.width, origH: box.height }
+        }}
+        onPointerMove={(e) => {
+          const r = resizeRef.current
+          if (!r) return
+          onUpdate(box.id, {
+            width: Math.max(120, r.origW + (e.clientX - r.startX)),
+            height: Math.max(44, r.origH + (e.clientY - r.startY)),
+          })
+        }}
+        onPointerUp={(e) => {
+          if (resizeRef.current) {
+            resizeRef.current = null
+            try {
+              e.currentTarget.releasePointerCapture(e.pointerId)
+            } catch {
+              // ignore
+            }
+          }
+        }}
+        className={`absolute bottom-0 right-0 size-3.5 cursor-nwse-resize transition-opacity ${
+          focused ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <span className="pointer-events-none absolute bottom-1 right-1 block size-1.5 border-b-2 border-r-2 border-slate-500/80" />
+      </div>
+    </div>
+  )
+}
+
 export function ExamShell({
   exam,
   onExit,
@@ -217,13 +457,11 @@ export function ExamShell({
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLORS[0].value)
   const [drawStrokes, setDrawStrokes] = useState<DrawStroke[]>([])
 
-  // Transparent on-page drawn Textbox Notes
+  // Transparent on-page Textbox Notes
   const [canvasTextNotes, setCanvasTextNotes] = useState<CanvasTextNote[]>([])
   const [drawingNoteRect, setDrawingNoteRect] = useState<LocalRect | null>(null)
-  const [focusedNoteBoxId, setFocusedNoteBoxId] = useState<string | null>(null)
+  const [newestNoteBoxId, setNewestNoteBoxId] = useState<string | null>(null)
   const noteDrawStartRef = useRef<{ pane: 'passage' | 'questions'; x: number; y: number } | null>(null)
-  const draggingBoxRef = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null)
-  const resizingBoxRef = useRef<{ id: string; startX: number; startY: number; origW: number; origH: number } | null>(null)
 
   // 1cm circular eraser + rectangle drag eraser state
   const [eraserClientPos, setEraserClientPos] = useState<{ x: number; y: number } | null>(null)
@@ -262,13 +500,13 @@ export function ExamShell({
     submittedRef.current = true
     setSubmitting(true)
     const boxStudyNotes: StudyNote[] = canvasTextNotes
-      .filter((box) => box.text.trim().length > 0)
+      .filter((box) => box.plainText.trim().length > 0)
       .map((box) => {
         const passage = exam.passages.find((p) => p.id === box.passageId)
         return {
           id: `box-${box.id}`,
           quote: '',
-          text: box.text.trim(),
+          text: box.plainText.trim(),
           color: box.textColor,
           passage_part: passage?.passage_part,
           pane: box.pane,
@@ -361,8 +599,8 @@ export function ExamShell({
     const rect = range.getBoundingClientRect()
     setSelection({
       text,
-      top: Math.max(8, rect.top - 42),
-      left: Math.max(130, Math.min(window.innerWidth - 130, rect.left + rect.width / 2)),
+      top: Math.max(10, rect.top - 46),
+      left: Math.max(140, Math.min(window.innerWidth - 140, rect.left + rect.width / 2)),
       rectTop: rect.top,
       pane,
       passageId: currentPassage.id,
@@ -407,7 +645,7 @@ export function ExamShell({
     setSelection(null)
   }
 
-  const beginNoteFromSelection = () => {
+  const beginLinkedNote = () => {
     if (!selection) return
     const linkedAnnotation = annotations.find((item) => selection.highlightIds.includes(item.id))
     const annotationId = linkedAnnotation?.id ?? crypto.randomUUID()
@@ -551,15 +789,13 @@ export function ExamShell({
   const passageTextNotes = canvasTextNotes.filter((n) => n.pane === 'passage' && n.passageId === currentPassage.id)
   const questionTextNotes = canvasTextNotes.filter((n) => n.pane === 'questions' && n.passageId === currentPassage.id)
 
-  const handleToolChange = useCallback((mode: ToolMode) => {
-    setToolMode((prev) => (prev === mode && mode !== 'select' ? 'select' : mode))
+  const toggleToolMode = useCallback((mode: ToolMode) => {
+    setToolMode((prev) => (prev === mode ? 'select' : mode))
     setEraserClientPos(null)
     setEraserRect(null)
     setDrawingNoteRect(null)
-    if (mode !== 'select') {
-      setSelection(null)
-      window.getSelection()?.removeAllRanges()
-    }
+    setSelection(null)
+    window.getSelection()?.removeAllRanges()
   }, [])
 
   const getLocalPoint = (el: HTMLElement | SVGSVGElement, e: React.PointerEvent) => {
@@ -637,8 +873,8 @@ export function ExamShell({
     const rawW = Math.abs(x - start.x)
     const rawH = Math.abs(y - start.y)
 
-    const width = rawW < 16 && rawH < 16 ? 240 : Math.max(180, rawW)
-    const height = rawW < 16 && rawH < 16 ? 90 : Math.max(64, rawH)
+    const width = rawW < 16 && rawH < 16 ? 220 : Math.max(150, rawW)
+    const height = rawW < 16 && rawH < 16 ? 76 : Math.max(54, rawH)
     const clampedX = Math.max(8, Math.min(Math.max(8, rect.width - width - 8), rawX))
     const clampedY = Math.max(8, rawY)
 
@@ -650,18 +886,25 @@ export function ExamShell({
       y: clampedY,
       width,
       height,
-      text: '',
+      html: '',
+      plainText: '',
       fontSize: 15,
-      bold: false,
-      italic: false,
       textColor: '#DC2626',
     }
 
     setCanvasTextNotes((prev) => [...prev, newNoteBox])
     setDrawingNoteRect(null)
-    setFocusedNoteBoxId(newNoteBox.id)
+    setNewestNoteBoxId(newNoteBox.id)
     setToolMode('select')
   }
+
+  const updateCanvasTextNote = useCallback((id: string, patch: Partial<CanvasTextNote>) => {
+    setCanvasTextNotes((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }, [])
+
+  const deleteCanvasTextNote = useCallback((id: string) => {
+    setCanvasTextNotes((prev) => prev.filter((item) => item.id !== id))
+  }, [])
 
   // Eraser logic: 1cm circular erasure + rectangular drag erasure
   const eraseAtCircle = useCallback(
@@ -860,227 +1103,6 @@ export function ExamShell({
   const hasAnyAnnotations =
     annotations.length > 0 || drawStrokes.length > 0 || notes.length > 0 || canvasTextNotes.length > 0
 
-  const updateNoteBox = (id: string, patch: Partial<CanvasTextNote>) => {
-    setCanvasTextNotes((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
-  }
-
-  const renderCanvasTextNotes = (items: CanvasTextNote[]) =>
-    items.map((box) => {
-      const isFocused = focusedNoteBoxId === box.id
-      return (
-        <div
-          key={box.id}
-          style={{
-            left: box.x,
-            top: box.y,
-            width: box.width,
-            height: box.height,
-          }}
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            setFocusedNoteBoxId(box.id)
-          }}
-          onMouseUp={(e) => e.stopPropagation()}
-          onKeyUp={(e) => e.stopPropagation()}
-          className={`group/notebox pointer-events-auto absolute z-30 flex flex-col rounded-lg bg-transparent transition ${
-            isFocused
-              ? 'border border-dashed border-sky-400/90'
-              : 'border border-transparent hover:border-dashed hover:border-slate-400/70'
-          }`}
-        >
-          {/* Thanh định dạng gọn nhẹ chỉ hiện khi hover hoặc đang nhập */}
-          <div
-            onMouseDown={(e) => e.preventDefault()}
-            className={`absolute -top-8 left-0 z-40 flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white/95 px-1.5 py-0.5 shadow-md backdrop-blur-xs transition ${
-              isFocused ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover/notebox:pointer-events-auto group-hover/notebox:opacity-100'
-            }`}
-          >
-            {/* Nút kéo di chuyển */}
-            <span
-              title="Kéo để di chuyển"
-              onPointerDown={(e) => {
-                if (e.button !== 0) return
-                e.stopPropagation()
-                e.currentTarget.setPointerCapture(e.pointerId)
-                draggingBoxRef.current = {
-                  id: box.id,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  origX: box.x,
-                  origY: box.y,
-                }
-              }}
-              onPointerMove={(e) => {
-                const drag = draggingBoxRef.current
-                if (!drag || drag.id !== box.id) return
-                const dx = e.clientX - drag.startX
-                const dy = e.clientY - drag.startY
-                updateNoteBox(box.id, {
-                  x: Math.max(0, drag.origX + dx),
-                  y: Math.max(0, drag.origY + dy),
-                })
-              }}
-              onPointerUp={(e) => {
-                if (draggingBoxRef.current?.id === box.id) {
-                  draggingBoxRef.current = null
-                  try {
-                    e.currentTarget.releasePointerCapture(e.pointerId)
-                  } catch {
-                    // ignore
-                  }
-                }
-              }}
-              className="flex size-5 cursor-grab items-center justify-center rounded text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
-            >
-              <GripHorizontal className="size-3.5" />
-            </span>
-
-            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
-
-            {/* Giảm / Tăng cỡ chữ */}
-            <button
-              type="button"
-              title="Giảm cỡ chữ"
-              onClick={() => updateNoteBox(box.id, { fontSize: Math.max(11, box.fontSize - 1) })}
-              className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100"
-            >
-              <Minus className="size-3" />
-            </button>
-            <span className="min-w-[24px] text-center text-[10px] font-semibold tabular-nums text-slate-600">
-              {box.fontSize}
-            </span>
-            <button
-              type="button"
-              title="Tăng cỡ chữ"
-              onClick={() => updateNoteBox(box.id, { fontSize: Math.min(32, box.fontSize + 1) })}
-              className="flex size-5 items-center justify-center rounded text-slate-600 hover:bg-slate-100"
-            >
-              <Plus className="size-3" />
-            </button>
-
-            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
-
-            {/* Bold & Italic */}
-            <button
-              type="button"
-              title="In đậm (Bold)"
-              aria-pressed={box.bold}
-              onClick={() => updateNoteBox(box.id, { bold: !box.bold })}
-              className={`flex size-5 items-center justify-center rounded transition ${
-                box.bold ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              <Bold className="size-3" />
-            </button>
-            <button
-              type="button"
-              title="In nghiêng (Italic)"
-              aria-pressed={box.italic}
-              onClick={() => updateNoteBox(box.id, { italic: !box.italic })}
-              className={`flex size-5 items-center justify-center rounded transition ${
-                box.italic ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-            >
-              <Italic className="size-3" />
-            </button>
-
-            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
-
-            {/* 5 màu chữ: Đỏ, Xám, Xanh lá, Cam, Xanh biển */}
-            {NOTE_TEXT_COLORS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                title={c.name}
-                aria-label={c.name}
-                onClick={() => updateNoteBox(box.id, { textColor: c.value })}
-                className={`size-3.5 rounded-full border border-slate-300 transition hover:scale-110 ${
-                  box.textColor === c.value ? 'ring-2 ring-sky-500 ring-offset-1' : ''
-                }`}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
-
-            <span className="mx-0.5 h-3.5 w-px bg-slate-200" />
-
-            {/* Xóa khung */}
-            <button
-              type="button"
-              aria-label="Xóa khung chữ"
-              title="Xóa"
-              onClick={() => setCanvasTextNotes((prev) => prev.filter((item) => item.id !== box.id))}
-              className="flex size-5 items-center justify-center rounded text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-            >
-              <X className="size-3" />
-            </button>
-          </div>
-
-          {/* Vùng nhập chữ trong suốt, không title */}
-          <textarea
-            autoFocus={isFocused}
-            value={box.text}
-            onFocus={() => setFocusedNoteBoxId(box.id)}
-            onBlur={() => {
-              window.setTimeout(() => {
-                setFocusedNoteBoxId((curr) => (curr === box.id ? null : curr))
-              }, 120)
-            }}
-            onChange={(e) => updateNoteBox(box.id, { text: e.target.value })}
-            placeholder="Nhập ghi chú..."
-            style={{
-              fontSize: `${box.fontSize}px`,
-              fontWeight: box.bold ? 700 : 400,
-              fontStyle: box.italic ? 'italic' : 'normal',
-              color: box.textColor,
-            }}
-            className="min-h-0 w-full flex-1 resize-none bg-transparent p-1.5 leading-snug outline-none placeholder:text-slate-400/80"
-          />
-
-          {/* Góc kéo thay đổi kích thước */}
-          <div
-            title="Kéo để đổi kích thước"
-            onPointerDown={(e) => {
-              if (e.button !== 0) return
-              e.stopPropagation()
-              e.currentTarget.setPointerCapture(e.pointerId)
-              resizingBoxRef.current = {
-                id: box.id,
-                startX: e.clientX,
-                startY: e.clientY,
-                origW: box.width,
-                origH: box.height,
-              }
-            }}
-            onPointerMove={(e) => {
-              const res = resizingBoxRef.current
-              if (!res || res.id !== box.id) return
-              const dw = e.clientX - res.startX
-              const dh = e.clientY - res.startY
-              updateNoteBox(box.id, {
-                width: Math.max(120, res.origW + dw),
-                height: Math.max(40, res.origH + dh),
-              })
-            }}
-            onPointerUp={(e) => {
-              if (resizingBoxRef.current?.id === box.id) {
-                resizingBoxRef.current = null
-                try {
-                  e.currentTarget.releasePointerCapture(e.pointerId)
-                } catch {
-                  // ignore
-                }
-              }
-            }}
-            className={`absolute bottom-0 right-0 size-3.5 cursor-nwse-resize transition ${
-              isFocused ? 'opacity-100' : 'opacity-0 group-hover/notebox:opacity-100'
-            }`}
-          >
-            <span className="pointer-events-none absolute bottom-1 right-1 block size-1.5 border-b-2 border-r-2 border-slate-500/70" />
-          </div>
-        </div>
-      )
-    })
-
   return (
     <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-slate-50 text-slate-900">
       <AppHeader compact onHomeClick={onExit} />
@@ -1098,77 +1120,80 @@ export function ExamShell({
           </div>
         </div>
 
-        {/* Công cụ vẽ, tẩy và vẽ khung note */}
-        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1">
-          <button
-            type="button"
-            onClick={() => handleToolChange('draw')}
-            aria-pressed={toolMode === 'draw'}
-            title="Bút vẽ tự do"
-            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
-              toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            <Pencil className="size-3.5" /> Draw
-          </button>
-
-          {toolMode === 'draw' && (
-            <div className="flex items-center gap-1 px-1">
-              {DRAW_COLORS.map((color) => (
-                <button
-                  key={color.value}
-                  type="button"
-                  aria-label={`Draw ${color.name}`}
-                  onClick={() => setDrawColor(color.value)}
-                  className={`size-4 rounded-full border border-slate-300 transition hover:scale-110 ${
-                    drawColor === color.value ? 'ring-2 ring-sky-600 ring-offset-1' : ''
-                  }`}
-                  style={{ backgroundColor: color.value }}
-                />
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => handleToolChange('eraser')}
-            aria-pressed={toolMode === 'eraser'}
-            title="Cục tẩy tròn 1cm (bấm tới đâu xóa tới đó) hoặc kéo hình chữ nhật để xóa"
-            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
-              toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            <Eraser className="size-3.5" /> Eraser
-          </button>
-
-          {toolMode === 'eraser' && (
+        {/* Thanh công cụ vẽ, tẩy, vẽ khung textbox note gọn gàng trên header */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1">
             <button
               type="button"
-              onClick={handleEraseAll}
-              disabled={!hasAnyAnnotations}
-              title="Xóa tất cả nét vẽ, highlight và ghi chú"
-              className="inline-flex h-7 items-center gap-1 rounded-lg bg-rose-50 px-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => toggleToolMode('draw')}
+              aria-pressed={toolMode === 'draw'}
+              title="Bút vẽ tự do"
+              className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
+                toolMode === 'draw' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              }`}
             >
-              <Trash2 className="size-3" /> Erase All
+              <Pencil className="size-3.5" />
+              <span className="hidden md:inline">Draw</span>
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={() => handleToolChange('note')}
-            aria-pressed={toolMode === 'note'}
-            title="Kéo vẽ khung ghi chú trong suốt lên bài đọc hoặc câu hỏi"
-            className={`inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition ${
-              toolMode === 'note' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            <StickyNote className="size-3.5" /> Textbox Note
-          </button>
-        </div>
+            {toolMode === 'draw' && (
+              <div className="flex items-center gap-1 px-1">
+                {DRAW_COLORS.map((color) => (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => setDrawColor(color.value)}
+                    aria-label={`Draw with ${color.name}`}
+                    title={`Màu ${color.name}`}
+                    className={`size-4 rounded-full border border-slate-300 transition hover:scale-110 ${
+                      drawColor === color.value ? 'ring-2 ring-sky-600 ring-offset-1' : ''
+                    }`}
+                    style={{ backgroundColor: color.value }}
+                  />
+                ))}
+              </div>
+            )}
 
-        <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => toggleToolMode('eraser')}
+              aria-pressed={toolMode === 'eraser'}
+              title="Cục tẩy 1cm (bấm xóa hoặc kéo hình chữ nhật)"
+              className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
+                toolMode === 'eraser' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              }`}
+            >
+              <Eraser className="size-3.5" />
+              <span className="hidden md:inline">Eraser</span>
+            </button>
+
+            {toolMode === 'eraser' && hasAnyAnnotations && (
+              <button
+                type="button"
+                onClick={handleEraseAll}
+                title="Xóa tất cả ghi chú & nét vẽ"
+                className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-50 px-2 text-[11px] font-semibold text-rose-700 hover:bg-rose-100"
+              >
+                <Trash2 className="size-3" /> All
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => toggleToolMode('note')}
+              aria-pressed={toolMode === 'note'}
+              title="Kéo vẽ khung Textbox trong suốt để ghi chú trực tiếp"
+              className={`flex h-7 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
+                toolMode === 'note' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white'
+              }`}
+            >
+              <SquarePen className="size-3.5" />
+              <span className="hidden md:inline">Textbox Note</span>
+            </button>
+          </div>
+
           <div
-            className={`inline-flex min-w-[104px] items-center justify-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm font-bold tabular-nums ${
+            className={`inline-flex min-w-[100px] items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-mono text-sm font-bold tabular-nums ${
               isPaused
                 ? 'border-amber-300 bg-amber-50 text-amber-800'
                 : exam.isTimed && secondsLeft < 300
@@ -1180,11 +1205,13 @@ export function ExamShell({
           >
             <Clock3 className="size-4" /> {exam.isTimed ? clock(secondsLeft) : clock(elapsed)}
           </div>
+
           <Button variant="outline" size="sm" onClick={startNewNote} aria-label="Open study notes" className="h-9 rounded-lg border-slate-200 px-2.5 sm:px-3">
-            <StickyNote className="size-4 sm:mr-2" />
+            <StickyNote className="size-4 sm:mr-1.5" />
             <span className="hidden sm:inline">Notes</span>
             <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px]">{notes.length + canvasTextNotes.length}</span>
           </Button>
+
           {isAdmin && (
             <Button
               type="button"
@@ -1198,12 +1225,13 @@ export function ExamShell({
                   : 'border-slate-200 text-slate-700 hover:bg-slate-50'
               }`}
             >
-              {isPaused ? <Play className="size-4 sm:mr-2" /> : <Pause className="size-4 sm:mr-2" />}
-              <span className="hidden sm:inline">{isPaused ? 'Resume' : 'Pause timer'}</span>
+              {isPaused ? <Play className="size-4 sm:mr-1.5" /> : <Pause className="size-4 sm:mr-1.5" />}
+              <span className="hidden sm:inline">{isPaused ? 'Resume' : 'Pause'}</span>
             </Button>
           )}
+
           <Button size="sm" onClick={handleSubmitClick} disabled={submitting} className="h-9 rounded-lg bg-sky-600 px-3 text-white hover:bg-sky-700 sm:px-4">
-            <Send className="size-4 sm:mr-2" />
+            <Send className="size-4 sm:mr-1.5" />
             <span className="hidden sm:inline">{submitting ? 'Submitting' : 'Submit'}</span>
           </Button>
         </div>
@@ -1283,7 +1311,7 @@ export function ExamShell({
                       width: drawingNoteRect.width,
                       height: drawingNoteRect.height,
                     }}
-                    className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
+                    className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/10"
                   />
                 )}
               </div>
@@ -1316,7 +1344,15 @@ export function ExamShell({
             )}
 
             {/* Transparent Textbox Notes on Passage */}
-            {renderCanvasTextNotes(passageTextNotes)}
+            {passageTextNotes.map((box) => (
+              <TransparentNoteBox
+                key={box.id}
+                box={box}
+                autoFocus={newestNoteBoxId === box.id}
+                onUpdate={updateCanvasTextNote}
+                onDelete={deleteCanvasTextNote}
+              />
+            ))}
           </div>
         </section>
 
@@ -1418,7 +1454,7 @@ export function ExamShell({
                         width: drawingNoteRect.width,
                         height: drawingNoteRect.height,
                       }}
-                      className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/5"
+                      className="pointer-events-none absolute rounded-lg border-2 border-dashed border-sky-500 bg-sky-500/10"
                     />
                   )}
                 </div>
@@ -1451,7 +1487,15 @@ export function ExamShell({
               )}
 
               {/* Transparent Textbox Notes on Questions */}
-              {renderCanvasTextNotes(questionTextNotes)}
+              {questionTextNotes.map((box) => (
+                <TransparentNoteBox
+                  key={box.id}
+                  box={box}
+                  autoFocus={newestNoteBoxId === box.id}
+                  onUpdate={updateCanvasTextNote}
+                  onDelete={deleteCanvasTextNote}
+                />
+              ))}
             </div>
           </div>
         </section>
@@ -1525,7 +1569,7 @@ export function ExamShell({
         </div>
       </footer>
 
-      {/* Thanh highlight ẩn đi — chỉ hiện nhỏ gọn phía trên khi người dùng chọn text */}
+      {/* Thanh highlight ẩn đi — chỉ hiện nhỏ phía trên khi người dùng bôi đen chọn text */}
       {selection && (
         <AnnotationToolbar
           position={{ top: selection.top, left: selection.left }}
@@ -1533,9 +1577,42 @@ export function ExamShell({
           hasHighlight={!!selection.highlightIds?.length}
           onHighlight={applySelectedHighlight}
           onClear={clearSelectedHighlights}
-          onNote={beginNoteFromSelection}
+          onNote={beginLinkedNote}
         />
       )}
 
       {pauseReason === 'auto' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md" role="presentation">
+          <div role="dialog" aria-modal="true" aria-labelledby="pause-title" className="w-full max-w-md rounded-2xl border border-white/70 bg-white/95 p-7 text-center shadow-2xl">
+            <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-sky-50 text-sky-700">
+              <Pause className="size-6" />
+            </div>
+            <h2 id="pause-title" className="mt-4 text-xl font-bold text-slate-900">Test Paused</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              The timer was automatically paused because you switched to another tab or application. Click resume to continue.
+            </p>
+            <Button onClick={() => setPauseReason(null)} className="mt-6 h-11 w-full rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+              <Play className="mr-2 size-4" /> Resume Test
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <StudyNotesDrawer
+        open={notesOpen}
+        anchorPosition={noteAnchor}
+        notes={notes}
+        quoteDraft={quoteDraft}
+        noteDraft={noteDraft}
+        editingNoteId={editingNoteId}
+        onClose={() => setNotesOpen(false)}
+        onQuoteChange={setQuoteDraft}
+        onTextChange={setNoteDraft}
+        onSave={saveNote}
+        onCreate={startNewNote}
+        onEdit={editNote}
+        onDelete={deleteNote}
+      />
+    </div>
+  )
+}
