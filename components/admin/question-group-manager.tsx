@@ -41,6 +41,15 @@ function getInitialSharedOptions(group: ExamGroup): string {
   return defaults ? defaults.join('\n') : ''
 }
 
+function getPlainPreview(html: string | null | undefined): string {
+  if (!html) return ''
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 type Props = { group: ExamGroup; onChanged: () => void }
 
 export function QuestionGroupManager({ group, onChanged }: Props) {
@@ -143,10 +152,35 @@ export function QuestionGroupManager({ group, onChanged }: Props) {
           onSaved={() => { setEditing(null); onChanged() }}
           onCancel={() => setEditing(null)}
         /></div>}
-        {group.questions.length ? <ul className="divide-y divide-slate-100">{group.questions.map((question) => <li key={question.id} className="flex items-start justify-between gap-3 py-3 first:pt-0">
-          <div className="min-w-0"><div className="flex items-center gap-2"><span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-sky-50 text-[10px] font-bold text-sky-700">{question.question_number}</span><p className="truncate text-sm font-medium text-slate-800">{question.question_text || 'Câu hỏi trong nội dung dùng chung'}</p></div><p className="mt-1 pl-8 text-xs text-slate-500">Đáp án: {Array.isArray(question.accepted_answers) ? question.accepted_answers.join(' / ') : String(question.accepted_answers ?? '')}</p></div>
-          <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon-sm" aria-label={`Sửa câu ${question.question_number}`} onClick={() => setEditing(question)}><Pencil className="size-3.5" /></Button><Button variant="ghost" size="icon-sm" aria-label={`Xóa câu ${question.question_number}`} onClick={() => void removeQuestion(question)} className="text-slate-400 hover:text-rose-700"><Trash2 className="size-3.5" /></Button></div>
-        </li>)}</ul> : !editing && <p className="rounded-lg bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">Chưa có câu hỏi. Thêm câu hỏi đầu tiên để bắt đầu.</p>}
+        {group.questions.length ? <ul className="divide-y divide-slate-100">{group.questions.map((question) => {
+          const explanationPreview = getPlainPreview(question.explanation)
+          return (
+            <li key={question.id} className="flex items-start justify-between gap-3 py-3 first:pt-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-sky-50 text-[10px] font-bold text-sky-700">{question.question_number}</span>
+                  <p className="truncate text-sm font-medium text-slate-800">{getPlainPreview(question.question_text) || 'Câu hỏi trong nội dung dùng chung'}</p>
+                </div>
+                <p className="mt-1 pl-8 text-xs text-slate-600">
+                  Đáp án: <span className="font-semibold text-emerald-700">{Array.isArray(question.accepted_answers) ? question.accepted_answers.join(' / ') : String(question.accepted_answers ?? '')}</span>
+                </p>
+                {explanationPreview ? (
+                  <p className="mt-0.5 line-clamp-2 pl-8 text-xs text-slate-500">
+                    Giải thích: {explanationPreview}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 pl-8 text-[11px] italic text-slate-400">
+                    Chưa có giải thích
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button variant="ghost" size="icon-sm" aria-label={`Sửa câu ${question.question_number}`} onClick={() => setEditing(question)}><Pencil className="size-3.5" /></Button>
+                <Button variant="ghost" size="icon-sm" aria-label={`Xóa câu ${question.question_number}`} onClick={() => void removeQuestion(question)} className="text-slate-400 hover:text-rose-700"><Trash2 className="size-3.5" /></Button>
+              </div>
+            </li>
+          )
+        })}</ul> : !editing && <p className="rounded-lg bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">Chưa có câu hỏi. Thêm câu hỏi đầu tiên để bắt đầu.</p>}
         {!editing && <Button variant="outline" size="sm" onClick={() => setEditing('new')} className="mt-3 rounded-lg border-dashed"><Plus className="mr-1.5 size-3.5" /> Thêm câu hỏi</Button>}
       </div>
     </div>}
