@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Bold, ImagePlus, Italic, List, Table2, Underline, AlignLeft, AlignCenter, AlignJustify } from 'lucide-react'
+import DOMPurify from 'isomorphic-dompurify'
 import { createClient } from '@/lib/supabase/client'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { Button } from '@/components/ui/button'
@@ -34,6 +35,163 @@ const textTones = [
   { label: 'Đỏ nhấn', color: '#dc2626', swatch: 'bg-red-600' },
 ] as const
 
+const BLOCK_TAGS = new Set([
+  'P',
+  'DIV',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'LI',
+  'BLOCKQUOTE',
+  'PRE',
+  'SECTION',
+  'ARTICLE',
+  'TABLE',
+  'UL',
+  'OL',
+])
+
+function cleanPastedHtml(rawHtml: string, plainFallback: string): string {
+  if (typeof window === 'undefined') return rawHtml
+  const doc = new DOMParser().parseFromString(rawHtml, 'text/html')
+  doc.querySelectorAll('script, style, meta, link, title, xml, o\\:p').forEach((el) => el.remove())
+
+  // Chuyển <ol><li> và <ul><li> thành <p> có số thứ tự rõ ràng
+  for (const list of Array.from(doc.body.querySelectorAll('ol, ul')).reverse()) {
+    const isOrdered = list.tagName === 'OL'
+    const startAttr = Number(list.getAttribute('start'))
+    let num = Number.isFinite(startAttr) && startAttr > 0 ? Math.floor(startAttr) : 1
+    const frag = doc.createDocumentFragment()
+
+    for (const li of Array.from(list.children).filter((c) => c.tagName === 'LI')) {
+      const valAttr = Number(li.getAttribute('value'))
+      if (isOrdered && Number.isFinite(valAttr) && valAttr > 0) num = Math.floor(valAttr)
+
+      const p = doc.createElement('p')
+      while (li.firstChild) p.appendChild(li.firstChild)
+      const txt = (p.textContent ?? '').replace(/^[\s\u00a0]+/, '')
+      if (isOrdered) {
+        if (!/^\(?\d{1,3}\)?\s*[.):\-]\s+/.test(txt)) {
+          const strong = doc.createElement('strong')
+          strong.textContent = `${num}. `
+          p.insertBefore(strong, p.firstChild)
+        }
+        num += 1
+      } else if (txt && !/^[•\-*▪–—]\s+/.test(txt)) {
+        p.insertBefore(doc.createTextNode('• '), p.firstChild)
+      }
+      frag.appendChild(p)
+    }
+    list.replaceWith(frag)
+  }
+
+  // Chuyển <span style="..."> thành thẻ ngữ nghĩa
+  for (const span of Array.from(doc.body.querySelectorAll('span')).reverse()) {
+    const style = span.style
+    const fw = style.fontWeight?.toLowerCase() || ''
+    const isBold = fw === 'bold' || fw === 'bolder' || (Number.isFinite(Number(fw)) && Number(fw) >= 600)
+    const isItalic = style.fontStyle?.toLowerCase() === 'italic'
+    const isUnderline = (style.textDecoration || '').toLowerCase().includes('underline')
+
+    let wrap: HTMLElement | null = null
+    const applyWrap = (tag: string) => {
+      const el = doc.createElement(tag)
+      if (wrap) el.appendChild(wrap)
+      else while (span.firstChild) el.appendChild(span.firstChild)
+      wrap = el
+    }
+    if (isUnderline) applyWrap('u')
+    if (isItalic) applyWrap('em')
+    if (isBold) applyWrap('strong')
+    if (wrap) span.replaceWith(wrap)
+    else span.replaceWith(...Array.from(span.childNodes))
+  }
+
+  // Chuyển \n trong text node thành <br>
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+  const texts: Text[] = []
+  let cur = walker.nextNode()
+  while (cur) {
+    texts.push(cur as Text)
+    cur = walker.nextNode()
+  }
+  for (const t of texts) {
+    const val = t.nodeValue ?? ''
+    if (!val.includes('\n') && !val.includes('\r')) continue
+    const parts = val.replace(/\r\n?/g, '\n').split('\n')
+    const frag = doc.createDocumentFragment()
+    parts.forEach((part, idx) => {
+      if (part) frag.appendChild(doc.createTextNode(part))
+      if (idx < parts.length - 1) frag.appendChild(doc.createElement('br'))
+    })
+    t.parentNode?.replaceChild(frag, t)
+  }
+
+  // Chuyển div/pre thành p và xóa style rác
+  for (const div of Array.from(doc.body.querySelectorAll('div, section, article, pre')).reverse()) {
+    const hasBlock = Array.from(div.children).some((c) => BLOCK_TAGS.has(c.tagName))
+    if (hasBlock) {
+      div.replaceWith(...Array.from(div.childNodes))
+    } else {
+      const p = doc.createElement('p')
+      while (div.firstChild) p.appendChild(div.firstChild)
+      div.replaceWith(p)
+    }
+  }
+  doc.body.querySelectorAll('*').forEach((el) => {
+    if (el.tagName !== 'IMG' && el.tagName !== 'TABLE') {
+      el.removeAttribute('style')
+    }
+  })
+
+  // Tách <p> có chứa <br> thành nhiều <p>
+  for (const p of Array.from(doc.body.querySelectorAll('p'))) {
+    if (!p.querySelector('br') || !p.parentNode) continue
+    const segs: Node[][] = [[]]
+    for (const child of Array.from(p.childNodes)) {
+      if (child.nodeType === Node.ELEMENT_NODE && (child as Element).tagName === 'BR') {
+        segs.push([])
+      } else {
+        segs[segs.length - 1].push(child)
+      }
+    }
+    const frag = doc.createDocumentFragment()
+    for (const seg of segs) {
+      if (!seg.some((n) => (n.textContent ?? '').trim().length > 0 || n.nodeType === Node.ELEMENT_NODE)) continue
+      const newP = doc.createElement('p')
+      seg.forEach((n) => newP.appendChild(n))
+      frag.appendChild(newP)
+    }
+    p.parentNode.replaceChild(frag, p)
+  }
+
+  const sanitized = DOMPurify.sanitize(doc.body.innerHTML, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'style', 'a'],
+    FORBID_ATTR: ['class', 'id', 'srcdoc', 'color', 'face', 'bgcolor'],
+  })
+    .replace(/<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>/gi, '')
+    .trim()
+
+  const plainLines = plainFallback
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const htmlBlocks = (sanitized.match(/<(?:p|li|tr|h[1-6]|blockquote)\b/gi) || []).length
+
+  if ((!sanitized || (plainLines.length >= 2 && htmlBlocks <= 1 && !/<(?:img|table)\b/i.test(sanitized))) && plainLines.length) {
+    return plainLines
+      .map((line) => `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+      .join('')
+  }
+
+  return sanitized
+}
+
 export function RichTextEditor({
   value,
   onChange,
@@ -47,19 +205,58 @@ export function RichTextEditor({
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const lastEmittedRef = useRef<string>(value)
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     const editor = editorRef.current
-    if (!editor || document.activeElement === editor || editor.innerHTML === value) return
-    editor.innerHTML = sanitizeHtml(value)
+    if (!editor) return
+    if (value === lastEmittedRef.current) return
+    if (document.activeElement === editor) return
+    const nextHtml = sanitizeHtml(value)
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml
+    }
+    lastEmittedRef.current = value
   }, [value])
+
+  const emitChange = () => {
+    if (!editorRef.current) return
+    const html = editorRef.current.innerHTML
+    lastEmittedRef.current = html
+    onChange(html)
+  }
 
   const command = (name: string, argument?: string) => {
     editorRef.current?.focus()
+    try {
+      document.execCommand('defaultParagraphSeparator', false, 'p')
+    } catch {
+      // Ignore unsupported browsers
+    }
     document.execCommand(name, false, argument)
-    if (editorRef.current) onChange(editorRef.current.innerHTML)
+    emitChange()
+  }
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = Array.from(event.clipboardData.items || [])
+    const imageItem = items.find((item) => item.type.startsWith('image/'))
+    if (imageItem) {
+      event.preventDefault()
+      const file = imageItem.getAsFile()
+      if (file) void uploadImage(file)
+      return
+    }
+
+    event.preventDefault()
+    const html = event.clipboardData.getData('text/html')
+    const plain = event.clipboardData.getData('text/plain')
+    const clean = cleanPastedHtml(html, plain)
+    if (clean) {
+      document.execCommand('insertHTML', false, clean)
+      emitChange()
+    }
   }
 
   const insertTable = () => {
@@ -107,7 +304,7 @@ export function RichTextEditor({
     image.style.maxWidth = '100%'
     editorRef.current?.focus()
     document.execCommand('insertHTML', false, image.outerHTML)
-    if (editorRef.current) onChange(editorRef.current.innerHTML)
+    emitChange()
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -165,8 +362,9 @@ export function RichTextEditor({
       role="textbox"
       aria-label={label}
       aria-multiline="true"
-      onInput={(event) => onChange(event.currentTarget.innerHTML)}
-      className="rich-content prose prose-slate max-w-none overflow-y-auto px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
+      onInput={emitChange}
+      onPaste={handlePaste}
+      className="rich-content prose prose-slate max-w-none overflow-y-auto break-words px-4 py-3 text-sm outline-none [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
       style={{ minHeight }}
     />
     {message && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">{message}</p>}
@@ -185,17 +383,42 @@ export function MiniRichTextEditor({
   label: string
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const lastEmittedRef = useRef<string>(value)
 
   useEffect(() => {
     const editor = editorRef.current
-    if (!editor || document.activeElement === editor || editor.innerHTML === value) return
-    editor.innerHTML = sanitizeHtml(value)
+    if (!editor) return
+    if (value === lastEmittedRef.current) return
+    if (document.activeElement === editor) return
+    const nextHtml = sanitizeHtml(value)
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml
+    }
+    lastEmittedRef.current = value
   }, [value])
+
+  const emitChange = () => {
+    if (!editorRef.current) return
+    const html = editorRef.current.innerHTML
+    lastEmittedRef.current = html
+    onChange(html)
+  }
 
   const command = (name: string, argument?: string) => {
     editorRef.current?.focus()
     document.execCommand(name, false, argument)
-    if (editorRef.current) onChange(editorRef.current.innerHTML)
+    emitChange()
+  }
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const html = event.clipboardData.getData('text/html')
+    const plain = event.clipboardData.getData('text/plain')
+    const clean = cleanPastedHtml(html, plain)
+    if (clean) {
+      document.execCommand('insertHTML', false, clean)
+      emitChange()
+    }
   }
 
   return (
@@ -247,8 +470,9 @@ export function MiniRichTextEditor({
         role="textbox"
         aria-label={label}
         data-placeholder={placeholder}
-        onInput={(event) => onChange(event.currentTarget.innerHTML)}
-        className="min-h-[38px] px-3 py-1.5 text-sm text-slate-800 outline-none empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] [&_em]:italic [&_strong]:font-bold [&_u]:underline"
+        onInput={emitChange}
+        onPaste={handlePaste}
+        className="min-h-[38px] break-words px-3 py-1.5 text-sm text-slate-800 outline-none [overflow-wrap:anywhere] empty:before:pointer-events-none empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] [&_em]:italic [&_strong]:font-bold [&_u]:underline"
       />
     </div>
   )
