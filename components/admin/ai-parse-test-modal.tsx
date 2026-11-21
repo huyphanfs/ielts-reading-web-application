@@ -113,13 +113,17 @@ const BLOCK_TAG_NAMES = new Set([
   'HR',
 ])
 
-const ALLOWED_INLINE_STYLES = new Set([
+const TEXT_ALLOWED_STYLES = new Set([
   'text-align',
   'text-indent',
   'font-weight',
   'font-style',
   'text-decoration',
   'vertical-align',
+])
+
+const MEDIA_TABLE_ALLOWED_STYLES = new Set([
+  ...TEXT_ALLOWED_STYLES,
   'width',
   'max-width',
   'height',
@@ -128,19 +132,144 @@ const ALLOWED_INLINE_STYLES = new Set([
   'padding',
 ])
 
-function filterSafeCssStyle(rawStyle: string | null): string {
+function filterSafeCssStyle(rawStyle: string | null, tagName: string): string {
   if (!rawStyle) return ''
+  const upperTag = tagName.toUpperCase()
+  const allowSet =
+    upperTag === 'TABLE' || upperTag === 'TD' || upperTag === 'TH' || upperTag === 'IMG'
+      ? MEDIA_TABLE_ALLOWED_STYLES
+      : TEXT_ALLOWED_STYLES
+
   const kept: string[] = []
   for (const decl of rawStyle.split(';')) {
     const colonIdx = decl.indexOf(':')
     if (colonIdx === -1) continue
     const prop = decl.slice(0, colonIdx).trim().toLowerCase()
     const val = decl.slice(colonIdx + 1).trim()
-    if (!prop || !val || !ALLOWED_INLINE_STYLES.has(prop)) continue
+    if (!prop || !val || !allowSet.has(prop)) continue
     if (/expression|javascript:|url\s*\(/i.test(val)) continue
     kept.push(`${prop}: ${val}`)
   }
   return kept.join('; ')
+}
+
+function hasExplicitNumberPrefix(text: string, expectedNum: number): boolean {
+  const trimmed = text.replace(/^[\s\u00a0]+/, '')
+  const exactRegex = new RegExp(`^(?:\\(?${expectedNum}\\)?\\s*[.):\\-]|${expectedNum}\\s+)`)
+  if (exactRegex.test(trimmed)) return true
+  return /^\(?\d{1,3}\)?\s*[.):\-]\s+/.test(trimmed)
+}
+
+function hasBulletPrefix(text: string): boolean {
+  const trimmed = text.replace(/^[\s\u00a0]+/, '')
+  return /^[•\-*▪◦‣–—]\s+/.test(trimmed)
+}
+
+function convertListsToExplicitParagraphs(doc: Document) {
+  const lists = Array.from(doc.body.querySelectorAll('ol, ul'))
+  // Duyệt từ trong ra ngoài để xử lý tốt cả danh sách lồng nhau
+  for (const list of lists.reverse()) {
+    const isOrdered = list.tagName === 'OL'
+    const startAttr = Number(list.getAttribute('start'))
+    let currentNum = Number.isFinite(startAttr) && startAttr > 0 ? Math.floor(startAttr) : 1
+
+    const fragment = doc.createDocumentFragment()
+    const items = Array.from(list.children).filter((child) => child.tagName === 'LI')
+
+    for (const li of items) {
+      if (isOrdered) {
+        const valAttr = Number(li.getAttribute('value'))
+        if (Number.isFinite(valAttr) && valAttr > 0) {
+          currentNum = Math.floor(valAttr)
+        }
+      }
+
+      const p = doc.createElement('p')
+      const safeStyle = filterSafeCssStyle(li.getAttribute('style'), 'P')
+      if (safeStyle) p.setAttribute('style', safeStyle)
+
+      while (li.firstChild) {
+        p.appendChild(li.firstChild)
+      }
+
+      const currentText = p.textContent ?? ''
+      if (isOrdered) {
+        if (!hasExplicitNumberPrefix(currentText, currentNum)) {
+          const prefixEl = doc.createElement('strong')
+          prefixEl.textContent = `${currentNum}. `
+          p.insertBefore(prefixEl, p.firstChild)
+        }
+        currentNum += 1
+      } else if (currentText.trim() && !hasBulletPrefix(currentText)) {
+        p.insertBefore(doc.createTextNode('• '), p.firstChild)
+      }
+
+      fragment.appendChild(p)
+    }
+
+    list.replaceWith(fragment)
+  }
+}
+
+function convertNewlinesInTextNodesToBr(doc: Document) {
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+  let current = walker.nextNode()
+  while (current) {
+    textNodes.push(current as Text)
+    current = walker.nextNode()
+  }
+
+  for (const node of textNodes) {
+    const raw = node.nodeValue ?? ''
+    if (!raw.includes('\n') && !raw.includes('\r')) continue
+    const normalized = raw.replace(/\r\n?/g, '\n')
+    const parts = normalized.split('\n')
+    const frag = doc.createDocumentFragment()
+    parts.forEach((part, idx) => {
+      if (part) frag.appendChild(doc.createTextNode(part))
+      if (idx < parts.length - 1) {
+        frag.appendChild(doc.createElement('br'))
+      }
+    })
+    node.parentNode?.replaceChild(frag, node)
+  }
+}
+
+function splitParagraphsOnBr(doc: Document) {
+  const paragraphs = Array.from(doc.body.querySelectorAll('p'))
+  for (const p of paragraphs) {
+    if (!p.querySelector('br')) continue
+    const parent = p.parentNode
+    if (!parent) continue
+
+    const baseStyle = p.getAttribute('style')
+    const segments: Node[][] = [[]]
+
+    for (const child of Array.from(p.childNodes)) {
+      if (child.nodeType === Node.ELEMENT_NODE && (child as Element).tagName === 'BR') {
+        segments.push([])
+      } else {
+        segments[segments.length - 1].push(child)
+      }
+    }
+
+    const frag = doc.createDocumentFragment()
+    for (const seg of segments) {
+      const hasContent = seg.some(
+        (n) =>
+          (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0) ||
+          n.nodeType === Node.ELEMENT_NODE,
+      )
+      if (!hasContent) continue
+      const newP = doc.createElement('p')
+      if (baseStyle) newP.setAttribute('style', baseStyle)
+      seg.forEach((n) => newP.appendChild(n))
+      frag.appendChild(newP)
+    }
+
+    parent.replaceChild(frag, p)
+  }
 }
 
 function normalizeClipboardHtml(rawHtml: string): string {
@@ -151,13 +280,19 @@ function normalizeClipboardHtml(rawHtml: string): string {
   // Xóa thẻ rác từ Word / Google Docs / trình duyệt
   doc.querySelectorAll('script, style, meta, link, title, xml, o\\:p').forEach((el) => el.remove())
 
-  // Chuyển <span style="..."> (Google Docs / MS Word) thành thẻ ngữ nghĩa <strong>, <em>, <u>, <sub>, <sup>
+  // 1. Chuyển <ol><li> và <ul><li> thành các đoạn <p> có số câu tường minh (1., 2., 7., ...)
+  convertListsToExplicitParagraphs(doc)
+
+  // 2. Chuyển <span style="..."> (Google Docs / MS Word) thành thẻ ngữ nghĩa <strong>, <em>, <u>, <sub>, <sup>
   const spans = Array.from(doc.body.querySelectorAll('span'))
   for (const span of spans.reverse()) {
     const style = span.style
     const fontWeight = style.fontWeight?.toLowerCase() || ''
     const numericWeight = Number(fontWeight)
-    const isBold = fontWeight === 'bold' || fontWeight === 'bolder' || (Number.isFinite(numericWeight) && numericWeight >= 600)
+    const isBold =
+      fontWeight === 'bold' ||
+      fontWeight === 'bolder' ||
+      (Number.isFinite(numericWeight) && numericWeight >= 600)
     const isItalic = style.fontStyle?.toLowerCase() === 'italic'
     const textDeco = (style.textDecoration || style.textDecorationLine || '').toLowerCase()
     const isUnderline = textDeco.includes('underline')
@@ -185,29 +320,31 @@ function normalizeClipboardHtml(rawHtml: string): string {
     if (wrapper) {
       span.replaceWith(wrapper)
     } else {
-      // Bỏ thẻ span rỗng bọc ngoài nhưng giữ nguyên nội dung bên trong
       span.replaceWith(...Array.from(span.childNodes))
     }
   }
 
-  // Chuyển <div> / <section> / <article> thành <p> để không bị dính dòng khi dán
-  const containers = Array.from(doc.body.querySelectorAll('div, section, article, header, footer'))
+  // 3. Biến ký tự \n trong text node (từ PDF / ChatGPT / pre-wrap) thành <br> để không mất xuống dòng
+  convertNewlinesInTextNodesToBr(doc)
+
+  // 4. Chuyển <div> / <section> / <article> / <pre> thành <p> để không bị dính dòng khi dán
+  const containers = Array.from(doc.body.querySelectorAll('div, section, article, header, footer, pre'))
   for (const div of containers.reverse()) {
     const hasBlockChild = Array.from(div.children).some((child) => BLOCK_TAG_NAMES.has(child.tagName))
     if (hasBlockChild) {
       div.replaceWith(...Array.from(div.childNodes))
     } else {
       const p = doc.createElement('p')
-      const safeStyle = filterSafeCssStyle(div.getAttribute('style'))
+      const safeStyle = filterSafeCssStyle(div.getAttribute('style'), 'P')
       if (safeStyle) p.setAttribute('style', safeStyle)
       while (div.firstChild) p.appendChild(div.firstChild)
       div.replaceWith(p)
     }
   }
 
-  // Lọc style an toàn trên các thẻ còn lại để giữ căn lề, thụt đầu dòng, kích thước bảng/ảnh
+  // 5. Lọc style an toàn trên các thẻ còn lại (loại bỏ width/padding rác từ Word/web)
   doc.body.querySelectorAll('*').forEach((el) => {
-    const safeStyle = filterSafeCssStyle(el.getAttribute('style'))
+    const safeStyle = filterSafeCssStyle(el.getAttribute('style'), el.tagName)
     if (safeStyle) {
       el.setAttribute('style', safeStyle)
     } else {
@@ -215,12 +352,14 @@ function normalizeClipboardHtml(rawHtml: string): string {
     }
   })
 
-  // Bọc các đoạn text trần nằm trực tiếp dưới body thành thẻ <p> để tránh dính dòng với khối kế tiếp
+  // 6. Bọc các đoạn text trần nằm trực tiếp dưới body thành thẻ <p>
   const topNodes = Array.from(doc.body.childNodes)
   let inlineBuffer: Node[] = []
   const flushInlineBuffer = (beforeNode: Node | null) => {
     const hasMeaningfulContent = inlineBuffer.some(
-      (n) => (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0) || n.nodeType === Node.ELEMENT_NODE,
+      (n) =>
+        (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim().length > 0) ||
+        (n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName !== 'BR'),
     )
     if (hasMeaningfulContent) {
       const p = doc.createElement('p')
@@ -241,6 +380,9 @@ function normalizeClipboardHtml(rawHtml: string): string {
     }
   }
   flushInlineBuffer(null)
+
+  // 7. Tách các thẻ <p> có chứa <br> thành từng thẻ <p> độc lập
+  splitParagraphsOnBr(doc)
 
   return doc.body.innerHTML
 }
@@ -288,7 +430,7 @@ function sanitizeRichPaste(html: string): string {
   })
 
   return clean
-    .replace(/<p>\s*(?:&nbsp;|\u00a0)?\s*<\/p>/gi, '')
+    .replace(/<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>/gi, '')
     .trim()
 }
 
@@ -303,7 +445,6 @@ function plainTextToHtml(text: string): string {
   const normalized = text.replace(/\r\n?/g, '\n').trim()
   if (!normalized) return ''
 
-  // Tách thành các đoạn văn dựa trên dòng trống hoặc từng dòng xuống hàng rõ ràng
   const lines = normalized.split('\n')
   const paragraphs: string[] = []
 
@@ -316,11 +457,26 @@ function plainTextToHtml(text: string): string {
   return paragraphs.join('')
 }
 
+function splitInlineNumberedItems(html: string): string {
+  // Tách các câu bị dính liền trên cùng một dòng:
+  // VD: "Part 2: True / False / Not Given (7–13) 7. FALSE ..." -> tách trước "7. "
+  // VD: "...đại dịch COVID-19). 8. FALSE – ..." -> tách trước "8. "
+  return html
+    .replace(
+      /(\b(?:Part\s*\d+|Questions?\s*\d+\s*[–\-]\s*\d+)[^<]{0,60}?)\s+(?=(?:<strong>\s*)?\d{1,2}\s*[.)]\s+)/gi,
+      '$1</p><p>',
+    )
+    .replace(
+      /([.!?)"”'’])\s+(?=(?:<strong>\s*)?\d{1,2}\s*[.)]\s+(?:[A-ZĐÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸ]|<strong>))/g,
+      '$1</p><p>',
+    )
+}
+
 function insertHtmlAtCursor(editor: HTMLDivElement, html: string) {
   editor.focus()
   const sel = window.getSelection()
 
-  // Nếu ô đang trống hoàn toàn, gán trực tiếp để tránh trình duyệt tự bọc <p> lồng nhau
+  // Nếu ô đang trống hoàn toàn, gán trực tiếp để tránh lồng thẻ
   const isEffectivelyEmpty =
     !editor.textContent?.trim() && !editor.querySelector('img, table, ul, ol, blockquote')
   if (isEffectivelyEmpty) {
@@ -339,6 +495,57 @@ function insertHtmlAtCursor(editor: HTMLDivElement, html: string) {
 
     const temp = document.createElement('div')
     temp.innerHTML = html
+    const containsBlock = Array.from(temp.children).some((child) => BLOCK_TAG_NAMES.has(child.tagName))
+
+    // Tìm thẻ block trực tiếp dưới editor (tránh lỗi chèn <p> vào bên trong <p> làm nhảy chữ)
+    let anchorEl: HTMLElement | null =
+      range.startContainer instanceof HTMLElement
+        ? range.startContainer
+        : range.startContainer.parentElement
+    while (anchorEl && anchorEl.parentElement !== editor && anchorEl !== editor) {
+      anchorEl = anchorEl.parentElement
+    }
+
+    if (containsBlock && anchorEl && anchorEl !== editor && BLOCK_TAG_NAMES.has(anchorEl.tagName)) {
+      const afterRange = document.createRange()
+      afterRange.setStart(range.endContainer, range.endOffset)
+      afterRange.setEndAfter(anchorEl.lastChild || anchorEl)
+      const trailingFrag = afterRange.extractContents()
+
+      const frag = document.createDocumentFragment()
+      let lastInserted: Node | null = null
+      while (temp.firstChild) {
+        lastInserted = temp.firstChild
+        frag.appendChild(temp.firstChild)
+      }
+
+      const trailingHasContent =
+        (trailingFrag.textContent ?? '').trim().length > 0 ||
+        Boolean(trailingFrag.querySelector('img, table'))
+
+      if (trailingHasContent) {
+        const trailingP = document.createElement('p')
+        trailingP.appendChild(trailingFrag)
+        frag.appendChild(trailingP)
+      }
+
+      const referenceNode = anchorEl.nextSibling
+      if (!anchorEl.textContent?.trim() && !anchorEl.querySelector('img, table')) {
+        anchorEl.replaceWith(frag)
+      } else {
+        editor.insertBefore(frag, referenceNode)
+      }
+
+      if (lastInserted) {
+        const caretRange = document.createRange()
+        caretRange.selectNodeContents(lastInserted)
+        caretRange.collapse(false)
+        sel.removeAllRanges()
+        sel.addRange(caretRange)
+      }
+      return
+    }
+
     const frag = document.createDocumentFragment()
     let lastInserted: Node | null = null
     while (temp.firstChild) {
@@ -401,12 +608,20 @@ function RichFormatTextBox({
   onContentChange?: () => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [autoFormatOnPaste, setAutoFormatOnPaste] = useState(true)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
+  const ensureParagraphSeparator = () => {
+    try {
+      document.execCommand('defaultParagraphSeparator', false, 'p')
+    } catch {
+      // Bỏ qua nếu trình duyệt không hỗ trợ
+    }
+  }
+
   const exec = (command: string, value?: string) => {
     editorRef.current?.focus()
+    ensureParagraphSeparator()
     document.execCommand(command, false, value)
     onContentChange?.()
   }
@@ -498,6 +713,7 @@ function RichFormatTextBox({
     }
 
     e.preventDefault()
+    ensureParagraphSeparator()
     const html = e.clipboardData.getData('text/html')
     const plain = e.clipboardData.getData('text/plain')
 
@@ -505,10 +721,20 @@ function RichFormatTextBox({
     if (html && html.trim()) {
       cleanHtml = sanitizeRichPaste(html)
     }
-    if (!cleanHtml && plain) {
-      cleanHtml = autoFormatOnPaste
-        ? plainTextToHtml(plain)
-        : `<p>${escapeHtmlText(plain.replace(/\r\n?/g, '\n')).replace(/\n/g, '<br>')}</p>`
+
+    // Nếu HTML bị gộp thành 1 đoạn duy nhất trong khi text/plain có nhiều dòng (copy từ PDF/chat), ưu tiên giữ xuống dòng từ text/plain
+    const plainLineCount = plain
+      ? plain
+          .replace(/\r\n?/g, '\n')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean).length
+      : 0
+    const htmlParagraphCount = (cleanHtml.match(/<(?:p|li|tr|h[1-6]|blockquote)\b/gi) || []).length
+    const hasRichMedia = /<(?:img|table)\b/i.test(cleanHtml)
+
+    if ((!cleanHtml || (plainLineCount >= 2 && htmlParagraphCount <= 1 && !hasRichMedia)) && plain) {
+      cleanHtml = plainTextToHtml(plain)
     }
 
     if (cleanHtml && editorRef.current) {
@@ -518,23 +744,27 @@ function RichFormatTextBox({
   }
 
   const autoFormatParagraphs = () => {
-    setAutoFormatOnPaste((enabled) => !enabled)
     const el = editorRef.current
     if (!el) return
     el.focus()
 
-    // Giữ nguyên toàn bộ thẻ format (<strong>, <em>, <u>, <h1>-<h6>, <table>, <img>...), chỉ tách đoạn & <br> gọn gàng
     const currentHtml = el.innerHTML.trim()
     if (!currentHtml) return
 
-    const normalizedHtml = sanitizeRichPaste(
+    const withSplitLines = splitInlineNumberedItems(
       currentHtml
-        .replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p>')
-        .replace(/<br\s*\/?>/gi, '</p><p>'),
+        .replace(/(<br\s*\/?>\s*)+/gi, '</p><p>'),
     )
+    const normalizedHtml = sanitizeRichPaste(withSplitLines)
 
     if (normalizedHtml) {
       el.innerHTML = normalizedHtml
+      const sel = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      range.collapse(false)
+      sel?.removeAllRanges()
+      sel?.addRange(range)
       onContentChange?.()
     }
   }
@@ -595,7 +825,6 @@ function RichFormatTextBox({
           <button
             type="button"
             onClick={autoFormatParagraphs}
-            aria-pressed={autoFormatOnPaste}
             className="inline-flex h-7 items-center rounded-md border border-sky-200 bg-sky-50/80 px-2.5 text-[11px] font-semibold text-sky-700 transition hover:bg-sky-100"
           >
             <AlignLeft className="mr-1 size-3" /> Tự động tách đoạn &amp; xuống dòng
@@ -609,11 +838,12 @@ function RichFormatTextBox({
           role="textbox"
           aria-label={label}
           aria-multiline="true"
+          onFocus={ensureParagraphSeparator}
           onInput={() => onContentChange?.()}
           onPaste={handlePaste}
           data-placeholder={placeholder}
           style={{ minHeight }}
-          className="rich-content max-h-[300px] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400 [&:empty]:before:text-slate-400 [&:empty]:before:content-[attr(data-placeholder)]"
+          className="rich-content max-h-[300px] overflow-y-auto break-words px-4 py-3 text-sm leading-relaxed text-slate-800 outline-none [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400 [&:empty]:before:text-slate-400 [&:empty]:before:content-[attr(data-placeholder)]"
         />
       </div>
 
@@ -635,7 +865,6 @@ export function AIParseTestModal({
   onClose: () => void
   onSaved: (passageId: string) => void
 }) {
-  // Cấu hình chung
   const [targetPart, setTargetPart] = useState<1 | 2 | 3>(1)
   const [passageTitle, setPassageTitle] = useState('')
   const [selectedTopics, setSelectedTopics] = useState<PassageTopic[]>([])
@@ -644,15 +873,12 @@ export function AIParseTestModal({
   const [autoDetectTypes, setAutoDetectTypes] = useState(true)
   const [questionTypes, setQuestionTypes] = useState<string[]>([])
 
-  // ID bài đọc đã tạo trên Supabase để liên kết 3 phần
   const [savedPassageId, setSavedPassageId] = useState<string | null>(null)
 
-  // Refs cho 3 textbox độc lập
   const passageEditorRef = useRef<HTMLDivElement>(null)
   const questionsEditorRef = useRef<HTMLDivElement>(null)
   const answersEditorRef = useRef<HTMLDivElement>(null)
 
-  // Trạng thái từng phần
   const [savingPassage, setSavingPassage] = useState(false)
   const [passageDone, setPassageDone] = useState(false)
 
@@ -718,7 +944,6 @@ export function AIParseTestModal({
     )
   }
 
-  // --- PHẦN 1: LƯU BÀI ĐỌC (PASSAGE + MAX 2 TOPICS) ---
   const handleSavePassage = async (): Promise<string | null> => {
     setError(null)
     setNotice(null)
@@ -829,7 +1054,6 @@ export function AIParseTestModal({
     }
   }
 
-  // --- PHẦN 2: AI TRÍCH XUẤT & LƯU CÂU HỎI ---
   const handleExtractQuestions = async () => {
     setError(null)
     setNotice(null)
@@ -882,7 +1106,6 @@ export function AIParseTestModal({
         passageUpdates.title = result.passageTitle.trim()
       }
 
-      // Nếu admin chưa tự chọn Topic thì lấy tối đa 2 Topic do AI gợi ý
       let appliedTopics = selectedTopics
       if (selectedTopics.length === 0 && Array.isArray(result.suggested_topics) && result.suggested_topics.length > 0) {
         const aiTopics = parsePassageTopics(result.suggested_topics.join(', '))
@@ -900,7 +1123,6 @@ export function AIParseTestModal({
           .eq('id', activePassageId)
       }
 
-      // Xóa câu hỏi/nhóm cũ của passage này (nếu chạy lại Phần 2) để tránh trùng lặp
       await supabase.from('questions').delete().eq('passage_id', activePassageId)
       await supabase.from('question_groups').delete().eq('passage_id', activePassageId)
 
@@ -966,7 +1188,6 @@ export function AIParseTestModal({
     }
   }
 
-  // --- PHẦN 3: AI KHỚP ĐÁP ÁN & LƯU GIẢI THÍCH ---
   const handleExtractAnswers = async () => {
     setError(null)
     setNotice(null)
@@ -1262,9 +1483,7 @@ export function AIParseTestModal({
             </div>
           </div>
 
-          {/* ============================================================ */}
-          {/* PHẦN 1: UPLOAD / NHẬP BÀI ĐỌC (PASSAGE)                      */}
-          {/* ============================================================ */}
+          {/* PHẦN 1: BÀI ĐỌC */}
           <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
@@ -1317,9 +1536,7 @@ export function AIParseTestModal({
             </div>
           </section>
 
-          {/* ============================================================ */}
-          {/* PHẦN 2: UPLOAD / NHẬP CÂU HỎI (QUESTIONS)                    */}
-          {/* ============================================================ */}
+          {/* PHẦN 2: CÂU HỎI */}
           <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
@@ -1405,9 +1622,7 @@ export function AIParseTestModal({
             </div>
           </section>
 
-          {/* ============================================================ */}
-          {/* PHẦN 3: UPLOAD / NHẬP ĐÁP ÁN & GIẢI THÍCH                   */}
-          {/* ============================================================ */}
+          {/* PHẦN 3: ĐÁP ÁN & GIẢI THÍCH */}
           <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2.5">
