@@ -205,15 +205,15 @@ export function RichTextEditor({
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const lastEmittedRef = useRef<string>(value)
+  const lastEmittedRef = useRef<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    if (value === lastEmittedRef.current) return
-    if (document.activeElement === editor) return
+    if (lastEmittedRef.current !== null && value === lastEmittedRef.current) return
+    if (document.activeElement === editor && lastEmittedRef.current !== null) return
     const nextHtml = sanitizeHtml(value)
     if (editor.innerHTML !== nextHtml) {
       editor.innerHTML = nextHtml
@@ -383,13 +383,13 @@ export function MiniRichTextEditor({
   label: string
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
-  const lastEmittedRef = useRef<string>(value)
+  const lastEmittedRef = useRef<string | null>(null)
 
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    if (value === lastEmittedRef.current) return
-    if (document.activeElement === editor) return
+    if (lastEmittedRef.current !== null && value === lastEmittedRef.current) return
+    if (document.activeElement === editor && lastEmittedRef.current !== null) return
     const nextHtml = sanitizeHtml(value)
     if (editor.innerHTML !== nextHtml) {
       editor.innerHTML = nextHtml
